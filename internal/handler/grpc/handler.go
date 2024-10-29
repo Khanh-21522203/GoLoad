@@ -1,22 +1,34 @@
 package grpc
 
 import (
-	"context"
-
 	"GoLoad/internal/generated/grpc/go_load"
+	"GoLoad/internal/logic"
+	"context"
 )
 
 type Handler struct {
 	go_load.UnimplementedGoLoadServiceServer
+	accountLogic logic.Account
 }
 
-func NewHandler() go_load.GoLoadServiceServer {
-	return &Handler{}
+func NewHandler(accountLogic logic.Account) go_load.GoLoadServiceServer {
+	return &Handler{
+		accountLogic: accountLogic,
+	}
 }
 
 // CreateAccount implements go_load.GoLoadServiceServer.
-func (a *Handler) CreateAccount(context.Context, *go_load.CreateAccountRequest) (*go_load.CreateAccountResponse, error) {
-	panic("unimplemented")
+func (a *Handler) CreateAccount(ctx context.Context, request *go_load.CreateAccountRequest) (*go_load.CreateAccountResponse, error) {
+	output, err := a.accountLogic.CreateAccount(ctx, logic.CreateAccountParams{
+		AccountName: request.GetAccountName(),
+		Password:    request.GetPassword(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &go_load.CreateAccountResponse{
+		AccountId: output.ID,
+	}, nil
 }
 
 // CreateDownloadTask implements go_load.GoLoadServiceServer.
