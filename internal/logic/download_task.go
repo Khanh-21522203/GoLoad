@@ -7,6 +7,9 @@ import (
 	"context"
 
 	"github.com/doug-martin/goqu/v9"
+	"github.com/samber/lo"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type CreateDownloadTaskParams struct {
@@ -15,7 +18,7 @@ type CreateDownloadTaskParams struct {
 	URL          string
 }
 type CreateDownloadTaskOutput struct {
-	DownloadTask go_load.DownloadTask
+	DownloadTask *go_load.DownloadTask
 }
 type GetDownloadTaskListParams struct {
 	Token  string
@@ -23,8 +26,8 @@ type GetDownloadTaskListParams struct {
 	Limit  uint64
 }
 type GetDownloadTaskListOutput struct {
-	DownloadTask           go_load.DownloadTask
 	TotalDownloadTaskCount uint64
+	DownloadTaskList       []*go_load.DownloadTask
 }
 type UpdateDownloadTaskParams struct {
 	Token          string
@@ -32,7 +35,7 @@ type UpdateDownloadTaskParams struct {
 	URL            string
 }
 type UpdateDownloadTaskOutput struct {
-	DownloadTask go_load.DownloadTask
+	DownloadTask *go_load.DownloadTask
 }
 type DeleteDownloadTaskParams struct {
 	Token          string
@@ -46,42 +49,67 @@ type DownloadTask interface {
 }
 type downloadTask struct {
 	tokenLogic                  Token
+	accountDataAccessor         database.AccountDataAccessor
 	downloadTaskDataAccessor    database.DownloadTaskDataAccessor
 	downloadTaskCreatedProducer producer.DownloadTaskCreatedProducer
 	goquDatabase                *goqu.Database
 }
 
-func NewDownloadTask(tokenLogic Token, downloadTaskDataAccessor database.DownloadTaskDataAccessor,
+func NewDownloadTask(tokenLogic Token, accountDataAccessor database.AccountDataAccessor, downloadTaskDataAccessor database.DownloadTaskDataAccessor,
 	downloadTaskCreatedProducer producer.DownloadTaskCreatedProducer, goquDatabase *goqu.Database) DownloadTask {
 	return &downloadTask{
 		tokenLogic:                  tokenLogic,
+		accountDataAccessor:         accountDataAccessor,
 		downloadTaskDataAccessor:    downloadTaskDataAccessor,
 		downloadTaskCreatedProducer: downloadTaskCreatedProducer,
 		goquDatabase:                goquDatabase,
 	}
 }
+
+func (d downloadTask) databaseDownloadTaskToProtoDownloadTask(
+	downloadTask database.DownloadTask,
+	account database.Account,
+) *go_load.DownloadTask {
+	return &go_load.DownloadTask{
+		Id: downloadTask.ID,
+		OfAccount: &go_load.Account{
+			Id:          account.ID,
+			AccountName: account.AccountName,
+		},
+		DownloadType:   downloadTask.DownloadType,
+		Url:            downloadTask.URL,
+		DownloadStatus: go_load.DownloadStatus_Pending,
+	}
+}
+
 func (d downloadTask) CreateDownloadTask(ctx context.Context, params CreateDownloadTaskParams) (CreateDownloadTaskOutput, error) {
 	accountID, _, err := d.tokenLogic.GetAccountIDAndExpireTime(ctx, params.Token)
 	if err != nil {
 		return CreateDownloadTaskOutput{}, err
 	}
-	databaseDownloadTask := database.DownloadTask{
+	account, err := d.accountDataAccessor.GetAccountByID(ctx, accountID)
+	if err != nil {
+		return CreateDownloadTaskOutput{}, err
+	}
+	downloadTask := database.DownloadTask{
 		OfAccountID:    accountID,
 		DownloadType:   params.DownloadType,
 		URL:            params.URL,
 		DownloadStatus: go_load.DownloadStatus_Pending,
-		Metadata:       "{}",
+		Metadata: database.JSON{
+			Data: make(map[string]any),
+		},
 	}
 	txErr := d.goquDatabase.WithTx(func(td *goqu.TxDatabase) error {
 		downloadTaskID, createDownloadTaskErr := d.downloadTaskDataAccessor.
 			WithDatabase(td).
-			CreateDownloadTask(ctx, databaseDownloadTask)
+			CreateDownloadTask(ctx, downloadTask)
 		if createDownloadTaskErr != nil {
 			return createDownloadTaskErr
 		}
-		databaseDownloadTask.ID = downloadTaskID
+		downloadTask.ID = downloadTaskID
 		produceErr := d.downloadTaskCreatedProducer.Produce(ctx, producer.DownloadTaskCreated{
-			DownloadTask: databaseDownloadTask,
+			ID: downloadTaskID,
 		})
 		if produceErr != nil {
 			return produceErr
@@ -92,21 +120,76 @@ func (d downloadTask) CreateDownloadTask(ctx context.Context, params CreateDownl
 		return CreateDownloadTaskOutput{}, txErr
 	}
 	return CreateDownloadTaskOutput{
-		DownloadTask: go_load.DownloadTask{
-			Id:             databaseDownloadTask.ID,
-			OfAccount:      nil,
-			DownloadType:   params.DownloadType,
-			Url:            params.URL,
-			DownloadStatus: go_load.DownloadStatus_Pending,
-		},
+		DownloadTask: d.databaseDownloadTaskToProtoDownloadTask(downloadTask, account),
 	}, nil
 }
-func (d downloadTask) GetDownloadTaskList(context.Context, GetDownloadTaskListParams) (GetDownloadTaskListOutput, error) {
-	panic("Not implemented")
+func (d downloadTask) GetDownloadTaskList(ctx context.Context, params GetDownloadTaskListParams) (GetDownloadTaskListOutput, error) {
+	accountID, _, err := d.tokenLogic.GetAccountIDAndExpireTime(ctx, params.Token)
+	if err != nil {
+		return GetDownloadTaskListOutput{}, err
+	}
+	account, err := d.accountDataAccessor.GetAccountByID(ctx, accountID)
+	if err != nil {
+		return GetDownloadTaskListOutput{}, err
+	}
+	totalDownloadTaskCount, err := d.downloadTaskDataAccessor.GetDownloadTaskCountOfAccount(ctx, accountID)
+	if err != nil {
+		return GetDownloadTaskListOutput{}, err
+	}
+	downloadTaskList, err := d.downloadTaskDataAccessor.
+		GetDownloadTaskListOfAccount(ctx, accountID, params.Offset, params.Limit)
+	if err != nil {
+		return GetDownloadTaskListOutput{}, err
+	}
+	return GetDownloadTaskListOutput{
+		TotalDownloadTaskCount: totalDownloadTaskCount,
+		DownloadTaskList: lo.Map(downloadTaskList, func(item database.DownloadTask, index int) *go_load.DownloadTask {
+			return d.databaseDownloadTaskToProtoDownloadTask(item, account)
+		}),
+	}, nil
 }
-func (d downloadTask) UpdateDownloadTask(context.Context, UpdateDownloadTaskParams) (UpdateDownloadTaskOutput, error) {
-	panic("Not implemented")
+func (d downloadTask) UpdateDownloadTask(ctx context.Context, params UpdateDownloadTaskParams) (UpdateDownloadTaskOutput, error) {
+	accountID, _, err := d.tokenLogic.GetAccountIDAndExpireTime(ctx, params.Token)
+	if err != nil {
+		return UpdateDownloadTaskOutput{}, err
+	}
+	account, err := d.accountDataAccessor.GetAccountByID(ctx, accountID)
+	if err != nil {
+		return UpdateDownloadTaskOutput{}, err
+	}
+	output := UpdateDownloadTaskOutput{}
+	txErr := d.goquDatabase.WithTx(func(td *goqu.TxDatabase) error {
+		downloadTask, getDownloadTaskWithXLockErr := d.downloadTaskDataAccessor.WithDatabase(td).
+			GetDownloadTaskWithXLock(ctx, params.DownloadTaskID)
+		if getDownloadTaskWithXLockErr != nil {
+			return getDownloadTaskWithXLockErr
+		}
+		if downloadTask.OfAccountID != accountID {
+			return status.Error(codes.PermissionDenied, "trying to update a download task the account does not own")
+		}
+		downloadTask.URL = params.URL
+		output.DownloadTask = d.databaseDownloadTaskToProtoDownloadTask(downloadTask, account)
+		return d.downloadTaskDataAccessor.WithDatabase(td).UpdateDownloadTask(ctx, downloadTask)
+	})
+	if txErr != nil {
+		return UpdateDownloadTaskOutput{}, txErr
+	}
+	return output, nil
 }
-func (d downloadTask) DeleteDownloadTask(context.Context, DeleteDownloadTaskParams) error {
-	panic("Not implemented")
+func (d downloadTask) DeleteDownloadTask(ctx context.Context, params DeleteDownloadTaskParams) error {
+	accountID, _, err := d.tokenLogic.GetAccountIDAndExpireTime(ctx, params.Token)
+	if err != nil {
+		return err
+	}
+	return d.goquDatabase.WithTx(func(td *goqu.TxDatabase) error {
+		downloadTask, getDownloadTaskWithXLockErr := d.downloadTaskDataAccessor.WithDatabase(td).
+			GetDownloadTaskWithXLock(ctx, params.DownloadTaskID)
+		if getDownloadTaskWithXLockErr != nil {
+			return getDownloadTaskWithXLockErr
+		}
+		if downloadTask.OfAccountID != accountID {
+			return status.Error(codes.PermissionDenied, "trying to delete a download task the account does not own")
+		}
+		return d.downloadTaskDataAccessor.WithDatabase(td).DeleteDownloadTask(ctx, params.DownloadTaskID)
+	})
 }

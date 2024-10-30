@@ -17,7 +17,7 @@ const (
 )
 
 type AccountPassword struct {
-	OfAccountID uint64 `db:"of_account_id"`
+	OfAccountID uint64 `db:"of_account_id" goqu:"skipinsert,skipupdate"`
 	Hash        string `db:"hash"`
 }
 type AccountPasswordDataAccessor interface {

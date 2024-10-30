@@ -5,8 +5,6 @@ import (
 	"GoLoad/internal/dataaccess/mq/producer"
 	"context"
 	"encoding/json"
-	"fmt"
-	"log"
 )
 
 type Root interface {
@@ -24,7 +22,7 @@ func NewRoot(downloadTaskCreatedHandler DownloadTaskCreated, mqConsumer consumer
 	}
 }
 func (r root) Start(ctx context.Context) error {
-	if err := r.mqConsumer.RegisterHandler(
+	r.mqConsumer.RegisterHandler(
 		producer.MessageQueueDownloadTaskCreated,
 		func(ctx context.Context, queueName string, payload []byte) error {
 			var event producer.DownloadTaskCreated
@@ -32,9 +30,7 @@ func (r root) Start(ctx context.Context) error {
 				return err
 			}
 			return r.downloadTaskCreatedHandler.Handle(ctx, event)
-		}); err != nil {
-		log.Printf("failed to register download task created handler")
-		return fmt.Errorf("failed to register download task created handler: %w", err)
-	}
+		},
+	)
 	return r.mqConsumer.Start(ctx)
 }

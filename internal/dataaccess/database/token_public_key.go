@@ -17,7 +17,7 @@ const (
 )
 
 type TokenPublicKey struct {
-	ID        uint64 `db:"id"`
+	ID        uint64 `db:"id" goqu:"skipinsert,skipupdate"`
 	PublicKey []byte `db:"public_key"`
 }
 type TokenPublicKeyDataAccessor interface {

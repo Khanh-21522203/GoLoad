@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"log"
 
-	"GoLoad/internal/dataaccess/database"
-
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -16,7 +14,7 @@ const (
 )
 
 type DownloadTaskCreated struct {
-	DownloadTask database.DownloadTask
+	ID uint64 `json:"id"`
 }
 type DownloadTaskCreatedProducer interface {
 	Produce(ctx context.Context, event DownloadTaskCreated) error

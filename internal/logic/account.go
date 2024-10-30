@@ -3,6 +3,7 @@ package logic
 import (
 	"GoLoad/internal/dataaccess/cache"
 	"GoLoad/internal/dataaccess/database"
+	"GoLoad/internal/generated/grpc/go_load"
 	"context"
 	"database/sql"
 	"errors"
@@ -25,9 +26,14 @@ type CreateSessionParams struct {
 	AccountName string
 	Password    string
 }
+type CreateSessionOutput struct {
+	Account *go_load.Account
+	Token   string
+}
+
 type Account interface {
 	CreateAccount(ctx context.Context, params CreateAccountParams) (CreateAccountOutput, error)
-	CreateSession(ctx context.Context, params CreateSessionParams) (string, error)
+	CreateSession(ctx context.Context, params CreateSessionParams) (CreateSessionOutput, error)
 }
 type account struct {
 	goquDatabase                *goqu.Database
@@ -49,6 +55,13 @@ func NewAccount(goquDatabase *goqu.Database, takenAccountNameCache cache.TakenAc
 		tokenLogic:                  tokenLogic,
 	}
 }
+func (a account) databaseAccountToProtoAccount(account database.Account) *go_load.Account {
+	return &go_load.Account{
+		Id:          account.ID,
+		AccountName: account.AccountName,
+	}
+}
+
 func (a *account) isAccountAccountNameTaken(ctx context.Context, accountName string) (bool, error) {
 	accountNameTaken, err := a.takenAccountNameCache.Has(ctx, accountName)
 	if err != nil {
@@ -104,25 +117,28 @@ func (a *account) CreateAccount(ctx context.Context, params CreateAccountParams)
 		AccountName: params.AccountName,
 	}, nil
 }
-func (a *account) CreateSession(ctx context.Context, params CreateSessionParams) (string, error) {
+func (a *account) CreateSession(ctx context.Context, params CreateSessionParams) (CreateSessionOutput, error) {
 	existingAccount, err := a.accountDataAccessor.GetAccountByAccountName(ctx, params.AccountName)
 	if err != nil {
-		return "", err
+		return CreateSessionOutput{}, err
 	}
 	existingAccountPassword, err := a.accountPasswordDataAccessor.GetAccountPassword(ctx, existingAccount.ID)
 	if err != nil {
-		return "", err
+		return CreateSessionOutput{}, err
 	}
 	isHashEqual, err := a.hashLogic.IsHashEqual(ctx, params.Password, existingAccountPassword.Hash)
 	if err != nil {
-		return "", err
+		return CreateSessionOutput{}, err
 	}
 	if !isHashEqual {
-		return "", status.Error(codes.Unauthenticated, "incorrect password")
+		return CreateSessionOutput{}, status.Error(codes.Unauthenticated, "incorrect password")
 	}
 	token, _, err := a.tokenLogic.GetToken(ctx, existingAccount.ID)
 	if err != nil {
-		return "", err
+		return CreateSessionOutput{}, err
 	}
-	return token, nil
+	return CreateSessionOutput{
+		Account: a.databaseAccountToProtoAccount(existingAccount),
+		Token:   token,
+	}, nil
 }

@@ -45,10 +45,11 @@ message CreateSessionRequest {
     string password = 2;
 }
 message CreateSessionResponse {
-    string token = 1;
+    Account account = 1;
+    string token = 2;
 }
 message CreateDownloadTaskRequest {
-    Account account = 1;
+    string token = 1;
     DownloadType download_type = 2;
     string url = 3;
 }
@@ -74,7 +75,7 @@ message UpdateDownloadTaskResponse {
 }
 message DeleteDownloadTaskRequest {
     string token = 1;
-    DownloadTask download_task = 2;
+    uint64 download_task_id = 2;
 }
 message DeleteDownloadTaskResponse {}
 message GetDownloadTaskFileRequest {

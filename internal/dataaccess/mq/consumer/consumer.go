@@ -14,17 +14,13 @@ import (
 
 type HandlerFunc func(ctx context.Context, queueName string, payload []byte) error
 type Consumer interface {
-	RegisterHandler(queueName string, handlerFunc HandlerFunc) error
+	RegisterHandler(queueName string, handlerFunc HandlerFunc)
 	Start(ctx context.Context) error
 }
-type partitionConsumerAndHandlerFunc struct {
-	queueName         string
-	partitionConsumer sarama.PartitionConsumer
-	handlerFunc       HandlerFunc
-}
+
 type consumer struct {
-	saramaConsumer                      sarama.Consumer
-	partitionConsumerAndHandlerFuncList []partitionConsumerAndHandlerFunc
+	saramaConsumer            sarama.Consumer
+	queueNameToHandlerFuncMap map[string]HandlerFunc
 }
 
 func newSaramaConfig(mqConfig configs.MQ) *sarama.Config {
@@ -42,40 +38,36 @@ func NewConsumer(mqConfig configs.MQ) (Consumer, error) {
 		saramaConsumer: saramaConsumer,
 	}, nil
 }
-func (c *consumer) RegisterHandler(queueName string, handlerFunc HandlerFunc) error {
+func (c *consumer) RegisterHandler(queueName string, handlerFunc HandlerFunc) {
+	c.queueNameToHandlerFuncMap[queueName] = handlerFunc
+}
+func (c consumer) consume(queueName string, handlerFunc HandlerFunc, exitSignalChannel chan os.Signal) error {
 	partitionConsumer, err := c.saramaConsumer.ConsumePartition(queueName, 0, sarama.OffsetOldest)
 	if err != nil {
 		return fmt.Errorf("failed to create sarama partition consumer: %w", err)
 	}
-	c.partitionConsumerAndHandlerFuncList = append(
-		c.partitionConsumerAndHandlerFuncList,
-		partitionConsumerAndHandlerFunc{
-			queueName:         queueName,
-			partitionConsumer: partitionConsumer,
-			handlerFunc:       handlerFunc,
-		})
-	return nil
-}
-func (c consumer) Start(_ context.Context) error {
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt)
-	for i := range c.partitionConsumerAndHandlerFuncList {
-		go func(i int) {
-			queueName := c.partitionConsumerAndHandlerFuncList[i].queueName
-			partitionConsumer := c.partitionConsumerAndHandlerFuncList[i].partitionConsumer
-			handlerFunc := c.partitionConsumerAndHandlerFuncList[i].handlerFunc
-			for {
-				select {
-				case message := <-partitionConsumer.Messages():
-					if err := handlerFunc(context.Background(), queueName, message.Value); err != nil {
-						log.Printf("failed to handle message")
-					}
-				case <-signals:
-					break
-				}
+	for {
+		select {
+		case message := <-partitionConsumer.Messages():
+			err = handlerFunc(context.Background(), queueName, message.Value)
+			if err != nil {
+				log.Printf("failed to handle message")
 			}
-		}(i)
+		case <-exitSignalChannel:
+			break
+		}
 	}
-	<-signals
+}
+func (c consumer) Start(ctx context.Context) error {
+	exitSignalChannel := make(chan os.Signal, 1)
+	signal.Notify(exitSignalChannel, os.Interrupt)
+	for queueName, handlerFunc := range c.queueNameToHandlerFuncMap {
+		go func(queueName string, handlerFunc HandlerFunc) {
+			if err := c.consume(queueName, handlerFunc, exitSignalChannel); err != nil {
+				log.Printf("failed to consume message from queue")
+			}
+		}(queueName, handlerFunc)
+	}
+	<-exitSignalChannel
 	return nil
 }

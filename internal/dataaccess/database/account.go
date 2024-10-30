@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"log"
 
 	"github.com/doug-martin/goqu/v9"
@@ -17,7 +16,7 @@ const (
 )
 
 type Account struct {
-	ID          uint64 `db:"id"`
+	ID          uint64 `db:"id" goqu:"skipinsert,skipupdate"`
 	AccountName string `db:"account_name"`
 }
 type AccountDataAccessor interface {
@@ -70,7 +69,7 @@ func (a *accountDataAccessor) GetAccountByID(ctx context.Context, id uint64) (Ac
 	}
 	if !found {
 		log.Printf("cannot find account by id, err=%+v\n", err)
-		return Account{}, sql.ErrNoRows
+		return Account{}, status.Error(codes.NotFound, "account not found")
 	}
 	return account, nil
 }
@@ -88,7 +87,7 @@ func (a *accountDataAccessor) GetAccountByAccountName(ctx context.Context, accou
 	}
 	if !found {
 		log.Printf("cannot find account by account name, err=%+v\n", err)
-		return Account{}, sql.ErrNoRows
+		return Account{}, status.Error(codes.NotFound, "account not found")
 	}
 	return account, nil
 }
