@@ -29,10 +29,10 @@ func NewServer(grpcConfig configs.GRPC, httpConfig configs.HTTP) Server {
 	}
 }
 func (s *server) Start(ctx context.Context) error {
-	mux := runtime.NewServeMux()
+	grpcMux := runtime.NewServeMux()
 	if err := go_load.RegisterGoLoadServiceHandlerFromEndpoint(
 		ctx,
-		mux,
+		grpcMux,
 		s.grpcConfig.Address,
 		[]grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -42,7 +42,7 @@ func (s *server) Start(ctx context.Context) error {
 	httpServer := http.Server{
 		Addr:              s.httpConfig.Address,
 		ReadHeaderTimeout: time.Minute,
-		Handler:           mux,
+		Handler:           grpcMux,
 	}
 	log.Printf("starting http server")
 	return httpServer.ListenAndServe()

@@ -8,12 +8,14 @@ import (
 
 type Handler struct {
 	go_load.UnimplementedGoLoadServiceServer
-	accountLogic logic.Account
+	accountLogic      logic.Account
+	downloadTaskLogic logic.DownloadTask
 }
 
-func NewHandler(accountLogic logic.Account) go_load.GoLoadServiceServer {
+func NewHandler(accountLogic logic.Account, downloadTaskLogic logic.DownloadTask) go_load.GoLoadServiceServer {
 	return &Handler{
-		accountLogic: accountLogic,
+		accountLogic:      accountLogic,
+		downloadTaskLogic: downloadTaskLogic,
 	}
 }
 
@@ -32,13 +34,32 @@ func (a *Handler) CreateAccount(ctx context.Context, request *go_load.CreateAcco
 }
 
 // CreateDownloadTask implements go_load.GoLoadServiceServer.
-func (a *Handler) CreateDownloadTask(context.Context, *go_load.CreateDownloadTaskRequest) (*go_load.CreateDownloadTaskResponse, error) {
-	panic("unimplemented")
+func (a *Handler) CreateDownloadTask(ctx context.Context, request *go_load.CreateDownloadTaskRequest) (*go_load.CreateDownloadTaskResponse, error) {
+	output, err := a.downloadTaskLogic.CreateDownloadTask(ctx, logic.CreateDownloadTaskParams{
+		// Token:        request.GetToken(),
+		DownloadType: request.GetDownloadType(),
+		URL:          request.GetUrl(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &go_load.CreateDownloadTaskResponse{
+		DownloadTask: &output.DownloadTask,
+	}, nil
 }
 
 // CreateSession implements go_load.GoLoadServiceServer.
-func (a *Handler) CreateSession(context.Context, *go_load.CreateSessionRequest) (*go_load.CreateSessionResponse, error) {
-	panic("unimplemented")
+func (a *Handler) CreateSession(ctx context.Context, request *go_load.CreateSessionRequest) (*go_load.CreateSessionResponse, error) {
+	token, err := a.accountLogic.CreateSession(ctx, logic.CreateSessionParams{
+		AccountName: request.GetAccountName(),
+		Password:    request.GetPassword(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &go_load.CreateSessionResponse{
+		Token: token,
+	}, nil
 }
 
 // DeleteDownloadTask implements go_load.GoLoadServiceServer.

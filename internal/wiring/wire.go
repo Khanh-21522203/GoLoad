@@ -8,7 +8,6 @@ import (
 	"GoLoad/internal/app"
 	"GoLoad/internal/configs"
 	"GoLoad/internal/dataaccess"
-	"GoLoad/internal/dataaccess/cache"
 	"GoLoad/internal/handler"
 	"GoLoad/internal/logic"
 
@@ -21,7 +20,7 @@ var WireSet = wire.NewSet(
 	logic.WireSet,
 	handler.WireSet,
 	app.WireSet,
-	cache.WireSet,
+	// cache.WireSet,
 )
 
 func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(), error) {

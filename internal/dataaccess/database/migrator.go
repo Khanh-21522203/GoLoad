@@ -22,9 +22,7 @@ type migrator struct {
 	db *sql.DB
 }
 
-func NewMigrator(
-	db *sql.DB,
-) Migrator {
+func NewMigrator(db *sql.DB) Migrator {
 	return &migrator{
 		db: db,
 	}

@@ -17,8 +17,8 @@ const (
 )
 
 type TokenPublicKey struct {
-	ID        uint64 `sql:"id"`
-	PublicKey []byte `sql:"public_key"`
+	ID        uint64 `db:"id"`
+	PublicKey []byte `db:"public_key"`
 }
 type TokenPublicKeyDataAccessor interface {
 	CreatePublicKey(ctx context.Context, tokenPublicKey TokenPublicKey) (uint64, error)

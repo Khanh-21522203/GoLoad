@@ -17,8 +17,8 @@ const (
 )
 
 type AccountPassword struct {
-	OfAccountID uint64 `sql:"of_account_id"`
-	Hash        string `sql:"hash"`
+	OfAccountID uint64 `db:"of_account_id"`
+	Hash        string `db:"hash"`
 }
 type AccountPasswordDataAccessor interface {
 	CreateAccountPassword(ctx context.Context, accountPassword AccountPassword) error
@@ -56,7 +56,7 @@ func (a *accountPasswordDataAccessor) CreateAccountPassword(ctx context.Context,
 func (a accountPasswordDataAccessor) GetAccountPassword(ctx context.Context, ofAccountID uint64) (AccountPassword, error) {
 	accountPassword := AccountPassword{}
 	found, err := a.database.
-		From(TabNameAccounts).
+		From(TabNameAccountPasswords).
 		Where(goqu.Ex{ColNameAccountPasswordsOfAccountID: ofAccountID}).
 		ScanStructContext(ctx, &accountPassword)
 	if err != nil {

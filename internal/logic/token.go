@@ -49,16 +49,6 @@ func generateRSAKeyPair(bits int) (*rsa.PrivateKey, error) {
 	return privateKeyPair, nil
 }
 
-type token struct {
-	accountDataAccessor        database.AccountDataAccessor
-	tokenPublicKeyCache        cache.TokenPublicKey
-	tokenPublicKeyDataAccessor database.TokenPublicKeyDataAccessor
-	expiresIn                  time.Duration
-	privateKey                 *rsa.PrivateKey
-	tokenPublicKeyID           uint64
-	authConfig                 configs.Auth
-}
-
 func pemEncodePublicKey(pubKey *rsa.PublicKey) ([]byte, error) {
 	pubBytes, err := x509.MarshalPKIXPublicKey(pubKey)
 	if err != nil {
@@ -70,6 +60,17 @@ func pemEncodePublicKey(pubKey *rsa.PublicKey) ([]byte, error) {
 	}
 	return pem.EncodeToMemory(block), nil
 }
+
+type token struct {
+	accountDataAccessor        database.AccountDataAccessor
+	tokenPublicKeyCache        cache.TokenPublicKey
+	tokenPublicKeyDataAccessor database.TokenPublicKeyDataAccessor
+	expiresIn                  time.Duration
+	privateKey                 *rsa.PrivateKey
+	tokenPublicKeyID           uint64
+	authConfig                 configs.Auth
+}
+
 func NewToken(accountDataAccessor database.AccountDataAccessor, tokenPublicKeyCache cache.TokenPublicKey,
 	tokenPublicKeyDataAccessor database.TokenPublicKeyDataAccessor, authConfig configs.Auth) (Token, error) {
 	expiresIn, err := authConfig.Token.GetExpiresInDuration()

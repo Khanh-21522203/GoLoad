@@ -17,8 +17,8 @@ const (
 )
 
 type Account struct {
-	ID          uint64 `sql:"id"`
-	AccountName string `sql:"account_name"`
+	ID          uint64 `db:"id"`
+	AccountName string `db:"account_name"`
 }
 type AccountDataAccessor interface {
 	CreateAccount(ctx context.Context, account Account) (uint64, error)
@@ -62,7 +62,7 @@ func (a *accountDataAccessor) GetAccountByID(ctx context.Context, id uint64) (Ac
 	account := Account{}
 	found, err := a.database.
 		From(TabNameAccounts).
-		Where(goqu.Ex{ColNameAccountsID: id}).
+		Where(goqu.C(ColNameAccountsID).Eq(id)).
 		ScanStructContext(ctx, &account)
 	if err != nil {
 		log.Printf("failed to get account by id, err=%+v\n", err)
@@ -80,7 +80,7 @@ func (a *accountDataAccessor) GetAccountByAccountName(ctx context.Context, accou
 	account := Account{}
 	found, err := a.database.
 		From(TabNameAccounts).
-		Where(goqu.Ex{ColNameAccountsAccountName: accountName}).
+		Where(goqu.C(ColNameAccountsAccountName).Eq(accountName)).
 		ScanStructContext(ctx, &account)
 	if err != nil {
 		log.Printf("failed to get account by account name, err=%+v\n", err)

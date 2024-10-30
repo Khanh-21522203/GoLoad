@@ -12,7 +12,10 @@ import (
 	"GoLoad/internal/dataaccess"
 	"GoLoad/internal/dataaccess/cache"
 	"GoLoad/internal/dataaccess/database"
+	"GoLoad/internal/dataaccess/mq/consumer"
+	"GoLoad/internal/dataaccess/mq/producer"
 	"GoLoad/internal/handler"
+	"GoLoad/internal/handler/consumer"
 	"GoLoad/internal/handler/grpc"
 	"GoLoad/internal/handler/http"
 	"GoLoad/internal/logic"
@@ -27,14 +30,13 @@ func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(
 		return nil, nil, err
 	}
 	configsDatabase := config.Database
-	db, cleanup, err := database.InitializeDB(configsDatabase)
+	db, cleanup, err := database.InitializeAndMigrateUpDB(configsDatabase)
 	if err != nil {
 		return nil, nil, err
 	}
-	migrator := database.NewMigrator(db)
 	goquDatabase := database.InitializeGoquDB(db)
 	configsCache := config.Cache
-	client := cache.NewClient(configsCache)
+	client := cache.NewRedisClient(configsCache)
 	takenAccountName := cache.NewTakenAccountName(client)
 	accountDataAccessor := database.NewAccountDataAccessor(goquDatabase)
 	accountPasswordDataAccessor := database.NewAccountPasswordDataAccessor(goquDatabase)
@@ -48,12 +50,28 @@ func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(
 		return nil, nil, err
 	}
 	account := logic.NewAccount(goquDatabase, takenAccountName, accountDataAccessor, accountPasswordDataAccessor, hash, token)
-	goLoadServiceServer := grpc.NewHandler(account)
+	downloadTaskDataAccessor := database.NewDownloadTaskDataAccessor(goquDatabase)
+	mq := config.MQ
+	producerClient, err := producer.NewClient(mq)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	downloadTaskCreatedProducer := producer.NewDownloadTaskCreatedProducer(producerClient)
+	downloadTask := logic.NewDownloadTask(token, downloadTaskDataAccessor, downloadTaskCreatedProducer, goquDatabase)
+	goLoadServiceServer := grpc.NewHandler(account, downloadTask)
 	configsGRPC := config.GRPC
 	server := grpc.NewServer(goLoadServiceServer, configsGRPC)
 	configsHTTP := config.HTTP
 	httpServer := http.NewServer(configsGRPC, configsHTTP)
-	appServer := app.NewServer(migrator, server, httpServer)
+	downloadTaskCreated := consumers.NewDownloadTaskCreated()
+	consumerConsumer, err := consumer.NewConsumer(mq)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	root := consumers.NewRoot(downloadTaskCreated, consumerConsumer)
+	appServer := app.NewServer(server, httpServer, root)
 	return appServer, func() {
 		cleanup()
 	}, nil
@@ -61,4 +79,4 @@ func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(
 
 // wire.go:
 
-var WireSet = wire.NewSet(configs.WireSet, dataaccess.WireSet, logic.WireSet, handler.WireSet, app.WireSet, cache.WireSet)
+var WireSet = wire.NewSet(configs.WireSet, dataaccess.WireSet, logic.WireSet, handler.WireSet, app.WireSet)
