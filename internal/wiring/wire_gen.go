@@ -7,18 +7,21 @@
 package wiring
 
 import (
+	"GoLoad/internal/app"
 	"GoLoad/internal/configs"
 	"GoLoad/internal/dataaccess"
+	"GoLoad/internal/dataaccess/cache"
 	"GoLoad/internal/dataaccess/database"
 	"GoLoad/internal/handler"
 	"GoLoad/internal/handler/grpc"
+	"GoLoad/internal/handler/http"
 	"GoLoad/internal/logic"
 	"github.com/google/wire"
 )
 
 // Injectors from wire.go:
 
-func InitializeGRPCServer(configFilePath configs.ConfigFilePath) (grpc.Server, func(), error) {
+func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(), error) {
 	config, err := configs.NewConfig(configFilePath)
 	if err != nil {
 		return nil, nil, err
@@ -29,18 +32,34 @@ func InitializeGRPCServer(configFilePath configs.ConfigFilePath) (grpc.Server, f
 		return nil, nil, err
 	}
 	goquDatabase := database.InitializeGoquDB(db)
+	configsCache := config.Cache
+	client, err := cache.NewClient(configsCache)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	takenAccountName := cache.NewTakenAccountName(client)
 	accountDataAccessor := database.NewAccountDataAccessor(goquDatabase)
 	accountPasswordDataAccessor := database.NewAccountPasswordDataAccessor(goquDatabase)
 	auth := config.Auth
 	hash := logic.NewHash(auth)
-	account := logic.NewAccount(goquDatabase, accountDataAccessor, accountPasswordDataAccessor, hash)
+	tokenPublicKey := cache.NewTokenPublicKey(client)
+	tokenPublicKeyDataAccessor := database.NewTokenPublicKeyDataAccessor(goquDatabase)
+	token, err := logic.NewToken(accountDataAccessor, tokenPublicKey, tokenPublicKeyDataAccessor, auth)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	account := logic.NewAccount(goquDatabase, takenAccountName, accountDataAccessor, accountPasswordDataAccessor, hash, token)
 	goLoadServiceServer := grpc.NewHandler(account)
 	server := grpc.NewServer(goLoadServiceServer)
-	return server, func() {
+	httpServer := http.NewServer()
+	appServer := app.NewServer(server, httpServer)
+	return appServer, func() {
 		cleanup()
 	}, nil
 }
 
 // wire.go:
 
-var WireSet = wire.NewSet(configs.WireSet, dataaccess.WireSet, logic.WireSet, handler.WireSet)
+var WireSet = wire.NewSet(configs.WireSet, dataaccess.WireSet, logic.WireSet, handler.WireSet, app.WireSet, cache.WireSet)

@@ -5,10 +5,11 @@
 package wiring
 
 import (
+	"GoLoad/internal/app"
 	"GoLoad/internal/configs"
 	"GoLoad/internal/dataaccess"
+	"GoLoad/internal/dataaccess/cache"
 	"GoLoad/internal/handler"
-	"GoLoad/internal/handler/grpc"
 	"GoLoad/internal/logic"
 
 	"github.com/google/wire"
@@ -19,9 +20,11 @@ var WireSet = wire.NewSet(
 	dataaccess.WireSet,
 	logic.WireSet,
 	handler.WireSet,
+	app.WireSet,
+	cache.WireSet,
 )
 
-func InitializeGRPCServer(configFilePath configs.ConfigFilePath) (grpc.Server, func(), error) {
+func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(), error) {
 	wire.Build(WireSet)
 	return nil, nil, nil
 }

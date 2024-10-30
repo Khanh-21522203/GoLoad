@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"database/sql"
 	"encoding/pem"
 	"errors"
 	"log"
@@ -13,11 +14,16 @@ import (
 	"github.com/golang-jwt/jwt"
 
 	"GoLoad/internal/configs"
+	"GoLoad/internal/dataaccess/cache"
 	"GoLoad/internal/dataaccess/database"
 )
 
 const (
 	rs512KeyPairBitCount = 2048
+)
+
+var (
+	errTokenPublicKeyNotFound = errors.New("token public key not found")
 )
 
 type Token interface {
@@ -36,6 +42,7 @@ func generateRSAKeyPair(bits int) (*rsa.PrivateKey, error) {
 
 type token struct {
 	accountDataAccessor        database.AccountDataAccessor
+	tokenPublicKeyCache        cache.TokenPublicKey
 	tokenPublicKeyDataAccessor database.TokenPublicKeyDataAccessor
 	expiresIn                  time.Duration
 	privateKey                 *rsa.PrivateKey
@@ -54,7 +61,8 @@ func pemEncodePublicKey(pubKey *rsa.PublicKey) ([]byte, error) {
 	}
 	return pem.EncodeToMemory(block), nil
 }
-func NewToken(accountDataAccessor database.AccountDataAccessor, tokenPublicKeyDataAccessor database.TokenPublicKeyDataAccessor, authConfig configs.Auth) (Token, error) {
+func NewToken(accountDataAccessor database.AccountDataAccessor, tokenPublicKeyCache cache.TokenPublicKey,
+	tokenPublicKeyDataAccessor database.TokenPublicKeyDataAccessor, authConfig configs.Auth) (Token, error) {
 	expiresIn, err := authConfig.Token.GetExpiresInDuration()
 	if err != nil {
 		log.Printf("failed to parse expires_in")
@@ -80,6 +88,7 @@ func NewToken(accountDataAccessor database.AccountDataAccessor, tokenPublicKeyDa
 	}
 	return &token{
 		accountDataAccessor:        accountDataAccessor,
+		tokenPublicKeyCache:        tokenPublicKeyCache,
 		tokenPublicKeyDataAccessor: tokenPublicKeyDataAccessor,
 		expiresIn:                  expiresIn,
 		privateKey:                 rsaKeyPair,
@@ -88,10 +97,24 @@ func NewToken(accountDataAccessor database.AccountDataAccessor, tokenPublicKeyDa
 	}, nil
 }
 func (t token) getJWTPublicKey(ctx context.Context, id uint64) (*rsa.PublicKey, error) {
+	cachedPublicKeyBytes, err := t.tokenPublicKeyCache.Get(ctx, id)
+	if err == nil && cachedPublicKeyBytes != nil {
+		return jwt.ParseRSAPublicKeyFromPEM(cachedPublicKeyBytes)
+	}
+	log.Printf("failed to get cached public key bytes, will fail back to database")
+
 	tokenPublicKey, err := t.tokenPublicKeyDataAccessor.GetPublicKey(ctx, id)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errTokenPublicKeyNotFound
+		}
 		log.Printf("cannot get token's public key from database")
 		return nil, err
+	}
+
+	err = t.tokenPublicKeyCache.Set(ctx, id, tokenPublicKey.PublicKey)
+	if err != nil {
+		log.Printf("failed to set public key bytes into cache")
 	}
 	return jwt.ParseRSAPublicKeyFromPEM(tokenPublicKey.PublicKey)
 }
