@@ -60,8 +60,3 @@ func (a *Handler) GetDownloadTaskList(context.Context, *go_load.GetDownloadTaskL
 func (a *Handler) UpdateDownloadTask(context.Context, *go_load.UpdateDownloadTaskRequest) (*go_load.UpdateDownloadTaskResponse, error) {
 	panic("unimplemented")
 }
-
-// mustEmbedUnimplementedGoLoadServiceServer implements go_load.GoLoadServiceServer.
-func (a *Handler) mustEmbedUnimplementedGoLoadServiceServer() {
-	panic("unimplemented")
-}

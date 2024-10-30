@@ -18,7 +18,7 @@ func NewServer(grpcServer grpc.Server, httpServer http.Server) *Server {
 		httpServer: httpServer,
 	}
 }
-func (s Server) Start() {
+func (s Server) Start() error {
 	go func() {
 		s.grpcServer.Start(context.Background())
 		log.Printf("grpc server stopped")
@@ -27,4 +27,5 @@ func (s Server) Start() {
 		s.httpServer.Start(context.Background())
 		log.Printf("http server stopped")
 	}()
+	return nil
 }

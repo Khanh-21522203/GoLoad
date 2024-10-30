@@ -6,6 +6,8 @@ import (
 	"log"
 
 	"github.com/doug-martin/goqu/v9"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -45,12 +47,12 @@ func (a accountDataAccessor) CreateAccount(ctx context.Context, account Account)
 		ExecContext(ctx)
 	if err != nil {
 		log.Printf("failed to create account, err=%+v\n", err)
-		return 0, err
+		return 0, status.Errorf(codes.Internal, "failed to create account: %+v", err)
 	}
 	lastInsertedID, err := result.LastInsertId()
 	if err != nil {
 		log.Printf("failed to get last inserted id, err=%+v\n", err)
-		return 0, err
+		return 0, status.Errorf(codes.Internal, "failed to get last inserted id: %+v", err)
 	}
 	return uint64(lastInsertedID), nil
 }
@@ -64,7 +66,7 @@ func (a *accountDataAccessor) GetAccountByID(ctx context.Context, id uint64) (Ac
 		ScanStructContext(ctx, &account)
 	if err != nil {
 		log.Printf("failed to get account by id, err=%+v\n", err)
-		return Account{}, err
+		return Account{}, status.Errorf(codes.Internal, "failed to get account by id: %+v", err)
 	}
 	if !found {
 		log.Printf("cannot find account by id, err=%+v\n", err)
@@ -82,7 +84,7 @@ func (a *accountDataAccessor) GetAccountByAccountName(ctx context.Context, accou
 		ScanStructContext(ctx, &account)
 	if err != nil {
 		log.Printf("failed to get account by account name, err=%+v\n", err)
-		return Account{}, err
+		return Account{}, status.Errorf(codes.Internal, "failed to get account by name: %+v", err)
 	}
 	if !found {
 		log.Printf("cannot find account by account name, err=%+v\n", err)

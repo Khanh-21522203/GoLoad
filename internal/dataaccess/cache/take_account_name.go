@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"log"
 )
 
 const (
@@ -23,10 +24,16 @@ func NewTakenAccountName(client Client) TakenAccountName {
 }
 func (c takenAccountName) Add(ctx context.Context, accountName string) error {
 	if err := c.client.AddToSet(ctx, setKeyNameTakenAccountName, accountName); err != nil {
+		log.Printf("failed to add account name to set in cache")
 		return err
 	}
 	return nil
 }
 func (c takenAccountName) Has(ctx context.Context, accountName string) (bool, error) {
-	return c.client.IsDataInSet(ctx, setKeyNameTakenAccountName, accountName)
+	result, err := c.client.IsDataInSet(ctx, setKeyNameTakenAccountName, accountName)
+	if err != nil {
+		log.Printf("failed to check if account name is in set in cache")
+		return false, err
+	}
+	return result, nil
 }

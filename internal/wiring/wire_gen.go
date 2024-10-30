@@ -31,13 +31,10 @@ func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(
 	if err != nil {
 		return nil, nil, err
 	}
+	migrator := database.NewMigrator(db)
 	goquDatabase := database.InitializeGoquDB(db)
 	configsCache := config.Cache
-	client, err := cache.NewClient(configsCache)
-	if err != nil {
-		cleanup()
-		return nil, nil, err
-	}
+	client := cache.NewClient(configsCache)
 	takenAccountName := cache.NewTakenAccountName(client)
 	accountDataAccessor := database.NewAccountDataAccessor(goquDatabase)
 	accountPasswordDataAccessor := database.NewAccountPasswordDataAccessor(goquDatabase)
@@ -52,9 +49,11 @@ func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(
 	}
 	account := logic.NewAccount(goquDatabase, takenAccountName, accountDataAccessor, accountPasswordDataAccessor, hash, token)
 	goLoadServiceServer := grpc.NewHandler(account)
-	server := grpc.NewServer(goLoadServiceServer)
-	httpServer := http.NewServer()
-	appServer := app.NewServer(server, httpServer)
+	configsGRPC := config.GRPC
+	server := grpc.NewServer(goLoadServiceServer, configsGRPC)
+	configsHTTP := config.HTTP
+	httpServer := http.NewServer(configsGRPC, configsHTTP)
+	appServer := app.NewServer(migrator, server, httpServer)
 	return appServer, func() {
 		cleanup()
 	}, nil

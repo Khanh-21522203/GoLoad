@@ -6,6 +6,8 @@ import (
 	"log"
 
 	"github.com/doug-martin/goqu/v9"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -42,25 +44,28 @@ func (a tokenPublicKeyDataAccessor) CreatePublicKey(ctx context.Context, tokenPu
 		ExecContext(ctx)
 	if err != nil {
 		log.Printf("failed to create token public key")
-		return 0, err
+		return 0, status.Errorf(codes.Internal, "failed to create token public key: %+v", err)
 	}
 	lastInsertedID, err := result.LastInsertId()
 	if err != nil {
 		log.Printf("failed to get last inserted id")
-		return 0, err
+		return 0, status.Errorf(codes.Internal, "failed to get last inserted id: %+v", err)
 	}
 	return uint64(lastInsertedID), nil
 }
 func (a tokenPublicKeyDataAccessor) GetPublicKey(ctx context.Context, id uint64) (TokenPublicKey, error) {
 	tokenPublicKey := TokenPublicKey{}
-	found, err := a.database.Select().From(TabNameTokenPublicKeys).Where(goqu.Ex{
-		ColNameTokenPublicKeysID: id,
-	}).
+	found, err := a.database.
+		Select().
+		From(TabNameTokenPublicKeys).
+		Where(goqu.Ex{
+			ColNameTokenPublicKeysID: id,
+		}).
 		Executor().
 		ScanStructContext(ctx, &tokenPublicKey)
 	if err != nil {
 		log.Printf("failed to get public key")
-		return TokenPublicKey{}, err
+		return TokenPublicKey{}, status.Errorf(codes.Internal, "failed to get public key: %+v", err)
 	}
 	if !found {
 		log.Printf("public key not found")

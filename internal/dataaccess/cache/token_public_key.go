@@ -29,7 +29,7 @@ func (c tokenPublicKey) Get(ctx context.Context, id uint64) ([]byte, error) {
 		return nil, err
 	}
 	if cacheEntry == nil {
-		return nil, nil
+		return nil, ErrCacheMiss
 	}
 	publicKey, ok := cacheEntry.([]byte)
 	if !ok {
@@ -40,5 +40,9 @@ func (c tokenPublicKey) Get(ctx context.Context, id uint64) ([]byte, error) {
 }
 func (c tokenPublicKey) Set(ctx context.Context, id uint64, bytes []byte) error {
 	cacheKey := c.getTokenPublicKeyCacheKey(id)
-	return c.client.Set(ctx, cacheKey, bytes, 0)
+	if err := c.client.Set(ctx, cacheKey, bytes, 0); err != nil {
+		log.Printf("failed to insert token public key into cache")
+		return err
+	}
+	return nil
 }

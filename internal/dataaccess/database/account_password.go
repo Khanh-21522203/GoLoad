@@ -6,6 +6,8 @@ import (
 	"log"
 
 	"github.com/doug-martin/goqu/v9"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -46,7 +48,7 @@ func (a *accountPasswordDataAccessor) CreateAccountPassword(ctx context.Context,
 		ExecContext(ctx)
 	if err != nil {
 		log.Printf("failed to create account password, err=%+v\n", err)
-		return err
+		return status.Errorf(codes.Internal, "failed to create account password: %+v", err)
 	}
 	return nil
 }
@@ -59,7 +61,7 @@ func (a accountPasswordDataAccessor) GetAccountPassword(ctx context.Context, ofA
 		ScanStructContext(ctx, &accountPassword)
 	if err != nil {
 		log.Printf("failed to get account password by id, err=%+v\n", err)
-		return AccountPassword{}, err
+		return AccountPassword{}, status.Errorf(codes.Internal, "failed to get account password by id: %+v", err)
 	}
 	if !found {
 		log.Printf("cannot find account by id, err=%+v\n", err)
@@ -78,7 +80,7 @@ func (a *accountPasswordDataAccessor) UpdateAccountPassword(ctx context.Context,
 		ExecContext(ctx)
 	if err != nil {
 		log.Printf("failed to update account password, err=%+v\n", err)
-		return err
+		return status.Errorf(codes.Internal, "failed to update account password: %+v", err)
 	}
 	return nil
 }

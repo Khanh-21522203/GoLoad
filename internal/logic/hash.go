@@ -7,6 +7,8 @@ import (
 	"GoLoad/internal/configs"
 
 	"golang.org/x/crypto/bcrypt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Hash interface {
@@ -25,7 +27,7 @@ func NewHash(authConfig configs.Auth) Hash {
 func (h hash) Hash(ctx context.Context, data string) (string, error) {
 	hashed, err := bcrypt.GenerateFromPassword([]byte(data), h.authConfig.Hash.Cost)
 	if err != nil {
-		return "", err
+		return "", status.Errorf(codes.Internal, "failed to hash data: %+v", err)
 	}
 	return string(hashed), nil
 }
@@ -34,7 +36,7 @@ func (h hash) IsHashEqual(ctx context.Context, data string, hashed string) (bool
 		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
 			return false, nil
 		}
-		return false, err
+		return false, status.Errorf(codes.Internal, "failed to check if data equal hash: %+v", err)
 	}
 	return true, nil
 }
