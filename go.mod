@@ -12,6 +12,7 @@ require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/doug-martin/goqu/v9 v9.19.0 // indirect
 	github.com/go-sql-driver/mysql v1.8.1 // indirect
+	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
 	github.com/google/subcommands v1.2.0 // indirect
 	github.com/google/wire v0.6.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

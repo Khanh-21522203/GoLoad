@@ -31,10 +31,10 @@ func InitializeGRPCServer(configFilePath configs.ConfigFilePath) (grpc.Server, f
 	goquDatabase := database.InitializeGoquDB(db)
 	accountDataAccessor := database.NewAccountDataAccessor(goquDatabase)
 	accountPasswordDataAccessor := database.NewAccountPasswordDataAccessor(goquDatabase)
-	account := config.Account
-	hash := logic.NewHash(account)
-	logicAccount := logic.NewAccount(goquDatabase, accountDataAccessor, accountPasswordDataAccessor, hash)
-	goLoadServiceServer := grpc.NewHandler(logicAccount)
+	auth := config.Auth
+	hash := logic.NewHash(auth)
+	account := logic.NewAccount(goquDatabase, accountDataAccessor, accountPasswordDataAccessor, hash)
+	goLoadServiceServer := grpc.NewHandler(account)
 	server := grpc.NewServer(goLoadServiceServer)
 	return server, func() {
 		cleanup()

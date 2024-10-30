@@ -2,14 +2,21 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"log"
 
 	"github.com/doug-martin/goqu/v9"
 )
 
+const (
+	TabNameAccounts            = "accounts"
+	ColNameAccountsID          = "id"
+	ColNameAccountsAccountName = "account_name"
+)
+
 type Account struct {
-	AccountID   uint64 `sql:"account_id"`
-	AccountName string `sql:"accountname"`
+	ID          uint64 `sql:"id"`
+	AccountName string `sql:"account_name"`
 }
 type AccountDataAccessor interface {
 	CreateAccount(ctx context.Context, account Account) (uint64, error)
@@ -30,9 +37,9 @@ func NewAccountDataAccessor(database *goqu.Database) AccountDataAccessor {
 // CreateAccount implements AccountDataAccessor.
 func (a accountDataAccessor) CreateAccount(ctx context.Context, account Account) (uint64, error) {
 	result, err := a.database.
-		Insert("accounts").
+		Insert("TabNameAccounts").
 		Rows(goqu.Record{
-			"accountname": account.AccountName,
+			ColNameAccountsAccountName: account.AccountName,
 		}).
 		Executor().
 		ExecContext(ctx)
@@ -50,12 +57,38 @@ func (a accountDataAccessor) CreateAccount(ctx context.Context, account Account)
 
 // GetAccountByID implements AccountDataAccessor.
 func (a *accountDataAccessor) GetAccountByID(ctx context.Context, id uint64) (Account, error) {
-	panic("unimplemented")
+	account := Account{}
+	found, err := a.database.
+		From(TabNameAccounts).
+		Where(goqu.Ex{ColNameAccountsID: id}).
+		ScanStructContext(ctx, &account)
+	if err != nil {
+		log.Printf("failed to get account by id, err=%+v\n", err)
+		return Account{}, err
+	}
+	if !found {
+		log.Printf("cannot find account by id, err=%+v\n", err)
+		return Account{}, sql.ErrNoRows
+	}
+	return account, nil
 }
 
 // GetAccountByAccountName implements AccountDataAccessor.
 func (a *accountDataAccessor) GetAccountByAccountName(ctx context.Context, accountName string) (Account, error) {
-	panic("unimplemented")
+	account := Account{}
+	found, err := a.database.
+		From(TabNameAccounts).
+		Where(goqu.Ex{ColNameAccountsAccountName: accountName}).
+		ScanStructContext(ctx, &account)
+	if err != nil {
+		log.Printf("failed to get account by account name, err=%+v\n", err)
+		return Account{}, err
+	}
+	if !found {
+		log.Printf("cannot find account by account name, err=%+v\n", err)
+		return Account{}, sql.ErrNoRows
+	}
+	return account, nil
 }
 
 // WithDatabase implements AccountDataAccessor.
