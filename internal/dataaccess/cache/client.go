@@ -54,7 +54,7 @@ func NewRedisClient(cacheConfig configs.Cache) Client {
 func (r redisClient) Set(ctx context.Context, key string, data any, ttl time.Duration) error {
 	if err := r.redisClient.Set(ctx, key, data, ttl).Err(); err != nil {
 		log.Printf("failed to set data into cache")
-		return status.Errorf(codes.Internal, "failed to set data into cache: %+v", err)
+		return status.Error(codes.Internal, "failed to set data into cache")
 	}
 	return nil
 }
@@ -65,7 +65,7 @@ func (r redisClient) Get(ctx context.Context, key string) (any, error) {
 			return nil, ErrCacheMiss
 		}
 		log.Printf("failed to get data from cache")
-		return nil, status.Errorf(codes.Internal, "failed to get data from cache: %+v", err)
+		return nil, status.Error(codes.Internal, "failed to get data from cache")
 	}
 	return data, nil
 }
@@ -73,7 +73,7 @@ func (r redisClient) AddToSet(ctx context.Context, key string, data ...any) erro
 
 	if err := r.redisClient.SAdd(ctx, key, data...).Err(); err != nil {
 		log.Printf("failed to set data into set inside cache")
-		return status.Errorf(codes.Internal, "failed to set data into set inside cache: %+v", err)
+		return status.Error(codes.Internal, "failed to set data into set inside cache")
 	}
 	return nil
 }
@@ -82,7 +82,7 @@ func (r redisClient) IsDataInSet(ctx context.Context, key string, data any) (boo
 	result, err := r.redisClient.SIsMember(ctx, key, data).Result()
 	if err != nil {
 		log.Printf("failed to check if data is member of set inside cache")
-		return false, status.Errorf(codes.Internal, "failed to check if data is member of set inside cache: %+v", err)
+		return false, status.Error(codes.Internal, "failed to check if data is member of set inside cache")
 	}
 	return result, nil
 }

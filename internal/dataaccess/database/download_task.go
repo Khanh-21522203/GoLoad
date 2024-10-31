@@ -11,7 +11,8 @@ import (
 )
 
 var (
-	TabNameDownloadTasks = goqu.T("download_tasks")
+	TabNameDownloadTasks    = goqu.T("download_tasks")
+	ErrDownloadTaskNotFound = status.Error(codes.NotFound, "download task not found")
 )
 
 const (
@@ -36,7 +37,7 @@ type DownloadTaskDataAccessor interface {
 
 type DownloadTask struct {
 	ID             uint64                 `db:"id" goqu:"skipinsert,skipupdate"`
-	OfAccountID    uint64                 `db:"of_account_id" goqu:"skipinsert,skipupdate"`
+	OfAccountID    uint64                 `db:"of_account_id" goqu:"skipupdate"`
 	DownloadType   go_load.DownloadType   `db:"download_type"`
 	URL            string                 `db:"url"`
 	DownloadStatus go_load.DownloadStatus `db:"download_status"`
@@ -54,18 +55,18 @@ func NewDownloadTaskDataAccessor(database *goqu.Database) DownloadTaskDataAccess
 }
 func (d downloadTaskDataAccessor) CreateDownloadTask(ctx context.Context, task DownloadTask) (uint64, error) {
 	result, err := d.database.
-		Insert(TabNameAccounts).
+		Insert(TabNameDownloadTasks).
 		Rows(task).
 		Executor().
 		ExecContext(ctx)
 	if err != nil {
 		log.Printf("failed to create download task")
-		return 0, status.Errorf(codes.Internal, "failed to create download task")
+		return 0, status.Error(codes.Internal, "failed to create download task")
 	}
 	lastInsertedID, err := result.LastInsertId()
 	if err != nil {
 		log.Printf("failed to get last inserted id")
-		return 0, status.Errorf(codes.Internal, "failed to get last inserted id")
+		return 0, status.Error(codes.Internal, "failed to get last inserted id")
 	}
 	return uint64(lastInsertedID), nil
 }
@@ -76,7 +77,7 @@ func (d downloadTaskDataAccessor) DeleteDownloadTask(ctx context.Context, id uin
 		Executor().
 		ExecContext(ctx); err != nil {
 		log.Printf("failed to delete download task")
-		return status.Errorf(codes.Internal, "failed to delete download task")
+		return status.Error(codes.Internal, "failed to delete download task")
 	}
 	return nil
 }
@@ -87,7 +88,7 @@ func (d downloadTaskDataAccessor) GetDownloadTaskCountOfAccount(ctx context.Cont
 		CountContext(ctx)
 	if err != nil {
 		log.Printf("failed to count download task of user")
-		return 0, status.Errorf(codes.Internal, "failed to count download task of user")
+		return 0, status.Error(codes.Internal, "failed to count download task of user")
 	}
 	return uint64(count), nil
 }
@@ -102,7 +103,7 @@ func (d downloadTaskDataAccessor) GetDownloadTaskListOfAccount(ctx context.Conte
 		Executor().
 		ScanStructsContext(ctx, &downloadTaskList); err != nil {
 		log.Printf("failed to get download task list of account")
-		return nil, status.Errorf(codes.Internal, "failed to get download task list of account")
+		return nil, status.Error(codes.Internal, "failed to get download task list of account")
 	}
 	return downloadTaskList, nil
 }
@@ -119,7 +120,7 @@ func (d downloadTaskDataAccessor) GetDownloadTask(ctx context.Context, id uint64
 	}
 	if !found {
 		log.Printf("download task not found")
-		return DownloadTask{}, status.Error(codes.NotFound, "download task not found")
+		return DownloadTask{}, ErrDownloadTaskNotFound
 	}
 	return downloadTask, nil
 }
@@ -133,11 +134,11 @@ func (d downloadTaskDataAccessor) GetDownloadTaskWithXLock(ctx context.Context, 
 		ScanStructContext(ctx, &downloadTask)
 	if err != nil {
 		log.Printf("failed to get download task")
-		return DownloadTask{}, status.Errorf(codes.Internal, "failed to get download task list of account")
+		return DownloadTask{}, status.Error(codes.Internal, "failed to get download task list of account")
 	}
 	if !found {
 		log.Printf("download task not found")
-		return DownloadTask{}, status.Error(codes.NotFound, "download task not found")
+		return DownloadTask{}, ErrDownloadTaskNotFound
 	}
 	return downloadTask, nil
 }
@@ -149,7 +150,7 @@ func (d downloadTaskDataAccessor) UpdateDownloadTask(ctx context.Context, task D
 		Executor().
 		ExecContext(ctx); err != nil {
 		log.Printf("failed to update download task")
-		return status.Errorf(codes.Internal, "failed to update download task")
+		return status.Error(codes.Internal, "failed to update download task")
 	}
 	return nil
 }

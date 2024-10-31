@@ -2,14 +2,23 @@ package logic
 
 import (
 	"GoLoad/internal/dataaccess/database"
+	"GoLoad/internal/dataaccess/file"
 	"GoLoad/internal/dataaccess/mq/producer"
 	"GoLoad/internal/generated/grpc/go_load"
 	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log"
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/samber/lo"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+const (
+	downloadTaskMetadataFieldNameFileName = "file-name"
 )
 
 type CreateDownloadTaskParams struct {
@@ -41,11 +50,18 @@ type DeleteDownloadTaskParams struct {
 	Token          string
 	DownloadTaskID uint64
 }
+type GetDownloadTaskFileParams struct {
+	Token          string
+	DownloadTaskID uint64
+}
+
 type DownloadTask interface {
 	CreateDownloadTask(context.Context, CreateDownloadTaskParams) (CreateDownloadTaskOutput, error)
 	GetDownloadTaskList(context.Context, GetDownloadTaskListParams) (GetDownloadTaskListOutput, error)
 	UpdateDownloadTask(context.Context, UpdateDownloadTaskParams) (UpdateDownloadTaskOutput, error)
 	DeleteDownloadTask(context.Context, DeleteDownloadTaskParams) error
+	ExecuteDownloadTask(context.Context, uint64) error
+	GetDownloadTaskFile(context.Context, GetDownloadTaskFileParams) (io.ReadCloser, error)
 }
 type downloadTask struct {
 	tokenLogic                  Token
@@ -53,23 +69,22 @@ type downloadTask struct {
 	downloadTaskDataAccessor    database.DownloadTaskDataAccessor
 	downloadTaskCreatedProducer producer.DownloadTaskCreatedProducer
 	goquDatabase                *goqu.Database
+	fileClient                  file.Client
 }
 
 func NewDownloadTask(tokenLogic Token, accountDataAccessor database.AccountDataAccessor, downloadTaskDataAccessor database.DownloadTaskDataAccessor,
-	downloadTaskCreatedProducer producer.DownloadTaskCreatedProducer, goquDatabase *goqu.Database) DownloadTask {
+	downloadTaskCreatedProducer producer.DownloadTaskCreatedProducer, goquDatabase *goqu.Database, fileClient file.Client) DownloadTask {
 	return &downloadTask{
 		tokenLogic:                  tokenLogic,
 		accountDataAccessor:         accountDataAccessor,
 		downloadTaskDataAccessor:    downloadTaskDataAccessor,
 		downloadTaskCreatedProducer: downloadTaskCreatedProducer,
 		goquDatabase:                goquDatabase,
+		fileClient:                  fileClient,
 	}
 }
 
-func (d downloadTask) databaseDownloadTaskToProtoDownloadTask(
-	downloadTask database.DownloadTask,
-	account database.Account,
-) *go_load.DownloadTask {
+func (d downloadTask) databaseDownloadTaskToProtoDownloadTask(downloadTask database.DownloadTask, account database.Account) *go_load.DownloadTask {
 	return &go_load.DownloadTask{
 		Id: downloadTask.ID,
 		OfAccount: &go_load.Account{
@@ -78,7 +93,7 @@ func (d downloadTask) databaseDownloadTaskToProtoDownloadTask(
 		},
 		DownloadType:   downloadTask.DownloadType,
 		Url:            downloadTask.URL,
-		DownloadStatus: go_load.DownloadStatus_Pending,
+		DownloadStatus: downloadTask.DownloadStatus,
 	}
 }
 
@@ -143,7 +158,7 @@ func (d downloadTask) GetDownloadTaskList(ctx context.Context, params GetDownloa
 	}
 	return GetDownloadTaskListOutput{
 		TotalDownloadTaskCount: totalDownloadTaskCount,
-		DownloadTaskList: lo.Map(downloadTaskList, func(item database.DownloadTask, index int) *go_load.DownloadTask {
+		DownloadTaskList: lo.Map(downloadTaskList, func(item database.DownloadTask, _ int) *go_load.DownloadTask {
 			return d.databaseDownloadTaskToProtoDownloadTask(item, account)
 		}),
 	}, nil
@@ -192,4 +207,106 @@ func (d downloadTask) DeleteDownloadTask(ctx context.Context, params DeleteDownl
 		}
 		return d.downloadTaskDataAccessor.WithDatabase(td).DeleteDownloadTask(ctx, params.DownloadTaskID)
 	})
+}
+
+func (d downloadTask) updateDownloadTaskStatusFromPendingToDownloading(ctx context.Context, id uint64) (bool, database.DownloadTask, error) {
+	var (
+		updated      = false
+		downloadTask database.DownloadTask
+		err          error
+	)
+	txErr := d.goquDatabase.WithTx(func(td *goqu.TxDatabase) error {
+		downloadTask, err = d.downloadTaskDataAccessor.WithDatabase(td).GetDownloadTaskWithXLock(ctx, id)
+		if err != nil {
+			if errors.Is(err, database.ErrDownloadTaskNotFound) {
+				log.Printf("download task not found, will skip")
+				return nil
+			}
+			log.Printf("failed to get download task")
+			return err
+		}
+		if downloadTask.DownloadStatus != go_load.DownloadStatus_Pending {
+			log.Printf("download task is not in pending status, will not execute")
+			updated = false
+			return nil
+		}
+		downloadTask.DownloadStatus = go_load.DownloadStatus_Downloading
+		err = d.downloadTaskDataAccessor.WithDatabase(td).UpdateDownloadTask(ctx, downloadTask)
+		if err != nil {
+			log.Printf("failed to update download task")
+			return err
+		}
+		updated = true
+		return nil
+	})
+	if txErr != nil {
+		return false, database.DownloadTask{}, err
+	}
+	return updated, downloadTask, nil
+}
+func (d downloadTask) ExecuteDownloadTask(ctx context.Context, id uint64) error {
+	updated, downloadTask, err := d.updateDownloadTaskStatusFromPendingToDownloading(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return nil
+	}
+	var downloader Downloader
+	//nolint:exhaustive // No need to check unsupported download type
+	switch downloadTask.DownloadType {
+	case go_load.DownloadType_HTTP:
+		downloader = NewHTTPDownloader(downloadTask.URL)
+	default:
+		log.Printf("unsupported download type")
+		return nil
+	}
+	fileName := fmt.Sprintf("download_file_%d", id)
+	fileWriteCloser, err := d.fileClient.Write(ctx, fileName)
+	if err != nil {
+		return err
+	}
+	defer fileWriteCloser.Close()
+	metadata, err := downloader.Download(ctx, fileWriteCloser)
+	if err != nil {
+		log.Printf("failed to download")
+		return err
+	}
+	metadata["downloadTaskMetadataFieldNameFileName"] = fileName
+	downloadTask.DownloadStatus = go_load.DownloadStatus_Success
+	downloadTask.Metadata = database.JSON{
+		Data: metadata,
+	}
+	err = d.downloadTaskDataAccessor.UpdateDownloadTask(ctx, downloadTask)
+	if err != nil {
+		log.Printf("failed to update download task status to success")
+		return err
+	}
+	log.Printf("download task executed successfully")
+	return nil
+}
+func (d downloadTask) GetDownloadTaskFile(ctx context.Context, params GetDownloadTaskFileParams) (io.ReadCloser, error) {
+	accountID, _, err := d.tokenLogic.GetAccountIDAndExpireTime(ctx, params.Token)
+	if err != nil {
+		return nil, err
+	}
+	downloadTask, err := d.downloadTaskDataAccessor.GetDownloadTask(ctx, params.DownloadTaskID)
+	if err != nil {
+		return nil, err
+	}
+	if downloadTask.OfAccountID != accountID {
+		return nil, status.Error(codes.PermissionDenied, "trying to get file of a download task the account does not own")
+	}
+	if downloadTask.DownloadStatus != go_load.DownloadStatus_Success {
+		return nil, status.Error(codes.InvalidArgument, "download task does not have status of success")
+	}
+	downloadTaskMetadata, ok := downloadTask.Metadata.Data.(map[string]any)
+	if !ok {
+		return nil, status.Error(codes.Internal, "download task metadata is not a map[string]any")
+	}
+	fileName, ok := downloadTaskMetadata[downloadTaskMetadataFieldNameFileName]
+	if !ok {
+		return nil, status.Error(codes.Internal, "download task metadata does not contain file name")
+	}
+	return d.fileClient.Read(ctx, fileName.(string))
 }

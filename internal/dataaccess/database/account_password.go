@@ -17,7 +17,7 @@ const (
 )
 
 type AccountPassword struct {
-	OfAccountID uint64 `db:"of_account_id" goqu:"skipinsert,skipupdate"`
+	OfAccountID uint64 `db:"of_account_id" goqu:"skipupdate"`
 	Hash        string `db:"hash"`
 }
 type AccountPasswordDataAccessor interface {
@@ -48,7 +48,7 @@ func (a *accountPasswordDataAccessor) CreateAccountPassword(ctx context.Context,
 		ExecContext(ctx)
 	if err != nil {
 		log.Printf("failed to create account password, err=%+v\n", err)
-		return status.Errorf(codes.Internal, "failed to create account password: %+v", err)
+		return status.Error(codes.Internal, "failed to create account password")
 	}
 	return nil
 }
@@ -61,7 +61,7 @@ func (a accountPasswordDataAccessor) GetAccountPassword(ctx context.Context, ofA
 		ScanStructContext(ctx, &accountPassword)
 	if err != nil {
 		log.Printf("failed to get account password by id, err=%+v\n", err)
-		return AccountPassword{}, status.Errorf(codes.Internal, "failed to get account password by id: %+v", err)
+		return AccountPassword{}, status.Error(codes.Internal, "failed to get account password by id")
 	}
 	if !found {
 		log.Printf("cannot find account by id, err=%+v\n", err)
@@ -80,7 +80,7 @@ func (a *accountPasswordDataAccessor) UpdateAccountPassword(ctx context.Context,
 		ExecContext(ctx)
 	if err != nil {
 		log.Printf("failed to update account password, err=%+v\n", err)
-		return status.Errorf(codes.Internal, "failed to update account password: %+v", err)
+		return status.Error(codes.Internal, "failed to update account password")
 	}
 	return nil
 }

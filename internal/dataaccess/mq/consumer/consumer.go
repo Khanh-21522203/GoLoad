@@ -35,7 +35,8 @@ func NewConsumer(mqConfig configs.MQ) (Consumer, error) {
 		return nil, fmt.Errorf("failed to create sarama consumer: %w", err)
 	}
 	return &consumer{
-		saramaConsumer: saramaConsumer,
+		saramaConsumer:            saramaConsumer,
+		queueNameToHandlerFuncMap: make(map[string]HandlerFunc),
 	}, nil
 }
 func (c *consumer) RegisterHandler(queueName string, handlerFunc HandlerFunc) {

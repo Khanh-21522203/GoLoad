@@ -42,7 +42,7 @@ func (c client) Produce(ctx context.Context, queueName string, payload []byte) e
 		Value: sarama.ByteEncoder(payload),
 	}); err != nil {
 		log.Printf("failed to produce message")
-		return status.Errorf(codes.Internal, "failed to produce message: %+v", err)
+		return status.Error(codes.Internal, "failed to produce message")
 	}
 	return nil
 }

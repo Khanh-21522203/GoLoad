@@ -9,8 +9,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var (
+	TabNameAccounts    = goqu.T("accounts")
+	ErrAccountNotFound = status.Error(codes.NotFound, "account not found")
+)
+
 const (
-	TabNameAccounts            = "accounts"
 	ColNameAccountsID          = "id"
 	ColNameAccountsAccountName = "account_name"
 )
@@ -46,12 +50,12 @@ func (a accountDataAccessor) CreateAccount(ctx context.Context, account Account)
 		ExecContext(ctx)
 	if err != nil {
 		log.Printf("failed to create account, err=%+v\n", err)
-		return 0, status.Errorf(codes.Internal, "failed to create account: %+v", err)
+		return 0, status.Error(codes.Internal, "failed to create account")
 	}
 	lastInsertedID, err := result.LastInsertId()
 	if err != nil {
 		log.Printf("failed to get last inserted id, err=%+v\n", err)
-		return 0, status.Errorf(codes.Internal, "failed to get last inserted id: %+v", err)
+		return 0, status.Error(codes.Internal, "failed to get last inserted id")
 	}
 	return uint64(lastInsertedID), nil
 }
@@ -65,11 +69,11 @@ func (a *accountDataAccessor) GetAccountByID(ctx context.Context, id uint64) (Ac
 		ScanStructContext(ctx, &account)
 	if err != nil {
 		log.Printf("failed to get account by id, err=%+v\n", err)
-		return Account{}, status.Errorf(codes.Internal, "failed to get account by id: %+v", err)
+		return Account{}, status.Error(codes.Internal, "failed to get account by id")
 	}
 	if !found {
 		log.Printf("cannot find account by id, err=%+v\n", err)
-		return Account{}, status.Error(codes.NotFound, "account not found")
+		return Account{}, ErrAccountNotFound
 	}
 	return account, nil
 }
@@ -83,11 +87,11 @@ func (a *accountDataAccessor) GetAccountByAccountName(ctx context.Context, accou
 		ScanStructContext(ctx, &account)
 	if err != nil {
 		log.Printf("failed to get account by account name, err=%+v\n", err)
-		return Account{}, status.Errorf(codes.Internal, "failed to get account by name: %+v", err)
+		return Account{}, status.Error(codes.Internal, "failed to get account by name")
 	}
 	if !found {
 		log.Printf("cannot find account by account name, err=%+v\n", err)
-		return Account{}, status.Error(codes.NotFound, "account not found")
+		return Account{}, ErrAccountNotFound
 	}
 	return account, nil
 }

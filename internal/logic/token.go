@@ -148,7 +148,7 @@ func (t token) GetAccountIDAndExpireTime(ctx context.Context, tokenString string
 	})
 	if err != nil {
 		log.Printf("failed to parse token")
-		return 0, time.Time{}, err
+		return 0, time.Time{}, errInvalidToken
 	}
 	if !parsedToken.Valid {
 		log.Printf("invalid token")

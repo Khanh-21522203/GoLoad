@@ -44,12 +44,12 @@ func (a tokenPublicKeyDataAccessor) CreatePublicKey(ctx context.Context, tokenPu
 		ExecContext(ctx)
 	if err != nil {
 		log.Printf("failed to create token public key")
-		return 0, status.Errorf(codes.Internal, "failed to create token public key: %+v", err)
+		return 0, status.Error(codes.Internal, "failed to create token public key")
 	}
 	lastInsertedID, err := result.LastInsertId()
 	if err != nil {
 		log.Printf("failed to get last inserted id")
-		return 0, status.Errorf(codes.Internal, "failed to get last inserted id: %+v", err)
+		return 0, status.Error(codes.Internal, "failed to get last inserted id")
 	}
 	return uint64(lastInsertedID), nil
 }
@@ -65,7 +65,7 @@ func (a tokenPublicKeyDataAccessor) GetPublicKey(ctx context.Context, id uint64)
 		ScanStructContext(ctx, &tokenPublicKey)
 	if err != nil {
 		log.Printf("failed to get public key")
-		return TokenPublicKey{}, status.Errorf(codes.Internal, "failed to get public key: %+v", err)
+		return TokenPublicKey{}, status.Error(codes.Internal, "failed to get public key")
 	}
 	if !found {
 		log.Printf("public key not found")

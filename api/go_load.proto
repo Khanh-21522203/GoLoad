@@ -24,7 +24,7 @@ enum DownloadStatus {
 }
 message Account {
     uint64 id = 1;
-    string accountName = 2;
+    string account_name = 2;
 }
 message DownloadTask {
     uint64 id = 1;
@@ -34,53 +34,47 @@ message DownloadTask {
     DownloadStatus download_status = 5;
 }
 message CreateAccountRequest {
-    string accountName = 1;
+    string account_name = 1;
     string password = 2;
 }
 message CreateAccountResponse {
     uint64 account_id = 1;
 }
 message CreateSessionRequest {
-    string accountName = 1;
+    string account_name = 1;
     string password = 2;
 }
 message CreateSessionResponse {
     Account account = 1;
-    string token = 2;
 }
 message CreateDownloadTaskRequest {
-    string token = 1;
-    DownloadType download_type = 2;
-    string url = 3;
+    DownloadType download_type = 1;
+    string url = 2;
 }
 message CreateDownloadTaskResponse {
     DownloadTask download_task = 1;
 }
 message GetDownloadTaskListRequest {
-    string token = 1;
-    uint64 offset = 2;
-    uint64 limit = 3;
+    uint64 offset = 1;
+    uint64 limit = 2;
 }
 message GetDownloadTaskListResponse {
     repeated DownloadTask download_task_list = 1;
     uint64 total_download_task_count = 2;
 }
 message UpdateDownloadTaskRequest {
-    string token = 1;
-    uint64 download_task_id = 2;
-    string url = 3;
+    uint64 download_task_id = 1;
+    string url = 2;
 }
 message UpdateDownloadTaskResponse {
     DownloadTask download_task = 1;
 }
 message DeleteDownloadTaskRequest {
-    string token = 1;
-    uint64 download_task_id = 2;
+    uint64 download_task_id = 1;
 }
 message DeleteDownloadTaskResponse {}
 message GetDownloadTaskFileRequest {
-    string token = 1;
-    uint64 download_task_id = 2;
+    uint64 download_task_id = 1;
 }
 message GetDownloadTaskFileResponse {
     bytes data = 1;

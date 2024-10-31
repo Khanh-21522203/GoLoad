@@ -12,6 +12,7 @@ import (
 	"GoLoad/internal/dataaccess"
 	"GoLoad/internal/dataaccess/cache"
 	"GoLoad/internal/dataaccess/database"
+	"GoLoad/internal/dataaccess/file"
 	"GoLoad/internal/dataaccess/mq/consumer"
 	"GoLoad/internal/dataaccess/mq/producer"
 	"GoLoad/internal/handler"
@@ -58,13 +59,23 @@ func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(
 		return nil, nil, err
 	}
 	downloadTaskCreatedProducer := producer.NewDownloadTaskCreatedProducer(producerClient)
-	downloadTask := logic.NewDownloadTask(token, accountDataAccessor, downloadTaskDataAccessor, downloadTaskCreatedProducer, goquDatabase)
-	goLoadServiceServer := grpc.NewHandler(account, downloadTask)
+	download := config.Download
+	fileClient, err := file.NewClient(download)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	downloadTask := logic.NewDownloadTask(token, accountDataAccessor, downloadTaskDataAccessor, downloadTaskCreatedProducer, goquDatabase, fileClient)
 	configsGRPC := config.GRPC
+	goLoadServiceServer, err := grpc.NewHandler(account, downloadTask, configsGRPC)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
 	server := grpc.NewServer(goLoadServiceServer, configsGRPC)
 	configsHTTP := config.HTTP
-	httpServer := http.NewServer(configsGRPC, configsHTTP)
-	downloadTaskCreated := consumers.NewDownloadTaskCreated()
+	httpServer := http.NewServer(configsGRPC, configsHTTP, auth)
+	downloadTaskCreated := consumers.NewDownloadTaskCreated(downloadTask)
 	consumerConsumer, err := consumer.NewConsumer(mq)
 	if err != nil {
 		cleanup()

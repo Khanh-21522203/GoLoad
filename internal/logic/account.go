@@ -5,7 +5,6 @@ import (
 	"GoLoad/internal/dataaccess/database"
 	"GoLoad/internal/generated/grpc/go_load"
 	"context"
-	"database/sql"
 	"errors"
 	"log"
 
@@ -66,11 +65,11 @@ func (a *account) isAccountAccountNameTaken(ctx context.Context, accountName str
 	accountNameTaken, err := a.takenAccountNameCache.Has(ctx, accountName)
 	if err != nil {
 		log.Printf("failed to get account name from taken set in cache, will fall back to database")
-	} else {
-		return accountNameTaken, nil
+	} else if accountNameTaken {
+		return true, nil
 	}
 	if _, err := a.accountDataAccessor.GetAccountByAccountName(ctx, accountName); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, database.ErrAccountNotFound) {
 			return false, nil
 		}
 		return false, err
@@ -84,7 +83,7 @@ func (a *account) isAccountAccountNameTaken(ctx context.Context, accountName str
 func (a *account) CreateAccount(ctx context.Context, params CreateAccountParams) (CreateAccountOutput, error) {
 	accountNameTaken, err := a.isAccountAccountNameTaken(ctx, params.AccountName)
 	if err != nil {
-		return CreateAccountOutput{}, status.Errorf(codes.Internal, "failed to check if account name is taken")
+		return CreateAccountOutput{}, status.Error(codes.Internal, "failed to check if account name is taken")
 	}
 	if accountNameTaken {
 		return CreateAccountOutput{}, status.Error(codes.AlreadyExists, "account name is already taken")
