@@ -32,6 +32,8 @@ type DownloadTaskDataAccessor interface {
 	GetDownloadTaskWithXLock(ctx context.Context, id uint64) (DownloadTask, error)
 	UpdateDownloadTask(ctx context.Context, task DownloadTask) error
 	DeleteDownloadTask(ctx context.Context, id uint64) error
+	GetPendingDownloadTaskIDList(ctx context.Context) ([]uint64, error)
+	UpdateDownloadingAndFailedDownloadTaskStatusToPending(ctx context.Context) error
 	WithDatabase(database Database) DownloadTaskDataAccessor
 }
 
@@ -154,6 +156,38 @@ func (d downloadTaskDataAccessor) UpdateDownloadTask(ctx context.Context, task D
 	}
 	return nil
 }
+
+func (d downloadTaskDataAccessor) GetPendingDownloadTaskIDList(ctx context.Context) ([]uint64, error) {
+	downloadTaskIDList := make([]uint64, 0)
+	if err := d.database.
+		Select(ColNameDownloadTaskID).
+		From(TabNameDownloadTasks).
+		Where(goqu.Ex{
+			ColNameDownloadTaskDownloadStatus: go_load.DownloadStatus_Pending,
+		}).
+		ScanValsContext(ctx, &downloadTaskIDList); err != nil {
+		log.Printf("failed to get pending download task id list")
+		return nil, status.Error(codes.Internal, "failed to get pending download task id list")
+	}
+	return downloadTaskIDList, nil
+}
+func (d downloadTaskDataAccessor) UpdateDownloadingAndFailedDownloadTaskStatusToPending(ctx context.Context) error {
+	if _, err := d.database.
+		Update(TabNameDownloadTasks).
+		Set(goqu.Record{
+			ColNameDownloadTaskDownloadStatus: go_load.DownloadStatus_Pending,
+		}).
+		Where(
+			goqu.C(ColNameDownloadTaskDownloadStatus).
+				In(go_load.DownloadStatus_Pending, go_load.DownloadStatus_Failed),
+		).Executor().
+		ExecContext(ctx); err != nil {
+		log.Printf("failed to update downloading and failed download task status to pending")
+		return status.Error(codes.Internal, "failed to update downloading and failed download task status to pending")
+	}
+	return nil
+}
+
 func (d downloadTaskDataAccessor) WithDatabase(database Database) DownloadTaskDataAccessor {
 	return &downloadTaskDataAccessor{
 		database: database,

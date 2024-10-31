@@ -19,13 +19,14 @@ import (
 	"GoLoad/internal/handler/consumer"
 	"GoLoad/internal/handler/grpc"
 	"GoLoad/internal/handler/http"
+	"GoLoad/internal/handler/jobs"
 	"GoLoad/internal/logic"
 	"github.com/google/wire"
 )
 
 // Injectors from wire.go:
 
-func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(), error) {
+func InitializeStandaloneServer(configFilePath configs.ConfigFilePath) (*app.StandaloneServer, func(), error) {
 	config, err := configs.NewConfig(configFilePath)
 	if err != nil {
 		return nil, nil, err
@@ -65,7 +66,8 @@ func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(
 		cleanup()
 		return nil, nil, err
 	}
-	downloadTask := logic.NewDownloadTask(token, accountDataAccessor, downloadTaskDataAccessor, downloadTaskCreatedProducer, goquDatabase, fileClient)
+	cron := config.Cron
+	downloadTask := logic.NewDownloadTask(token, accountDataAccessor, downloadTaskDataAccessor, downloadTaskCreatedProducer, goquDatabase, fileClient, cron)
 	configsGRPC := config.GRPC
 	goLoadServiceServer, err := grpc.NewHandler(account, downloadTask, configsGRPC)
 	if err != nil {
@@ -82,8 +84,10 @@ func InitializeServer(configFilePath configs.ConfigFilePath) (*app.Server, func(
 		return nil, nil, err
 	}
 	root := consumers.NewRoot(downloadTaskCreated, consumerConsumer)
-	appServer := app.NewServer(server, httpServer, root)
-	return appServer, func() {
+	executeAllPendingDownloadTask := jobs.NewExecuteAllPendingDownloadTask(downloadTask)
+	updateDownloadingAndFailedDownloadTaskStatusToPending := jobs.NewUpdateDownloadingAndFailedDownloadTaskStatusToPending(downloadTask)
+	standaloneServer := app.NewStandaloneServer(server, httpServer, root, executeAllPendingDownloadTask, updateDownloadingAndFailedDownloadTaskStatusToPending, cron)
+	return standaloneServer, func() {
 		cleanup()
 	}, nil
 }

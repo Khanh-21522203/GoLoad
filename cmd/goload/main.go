@@ -20,13 +20,14 @@ const (
 
 func server() *cobra.Command {
 	command := &cobra.Command{
-		Use: "server",
+		Use:  "standalone-server",
+		Long: "Start all components of GoLoad - gRPC + HTTP server, Kafka consumer, Cronjobs - as a single process",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configFilePath, err := cmd.Flags().GetString(flagConfigFilePath)
 			if err != nil {
 				return err
 			}
-			app, cleanup, err := wiring.InitializeServer(configs.ConfigFilePath(configFilePath))
+			app, cleanup, err := wiring.InitializeStandaloneServer(configs.ConfigFilePath(configFilePath))
 			if err != nil {
 				return err
 			}
