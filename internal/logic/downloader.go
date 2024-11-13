@@ -1,10 +1,12 @@
 package logic
 
 import (
+	"GoLoad/internal/utils"
 	"context"
 	"io"
-	"log"
 	"net/http"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -16,29 +18,33 @@ type Downloader interface {
 	Download(ctx context.Context, writer io.Writer) (map[string]any, error)
 }
 type HTTPDownloader struct {
-	url string
+	url    string
+	logger *zap.Logger
 }
 
-func NewHTTPDownloader(url string) Downloader {
+func NewHTTPDownloader(url string, logger *zap.Logger) Downloader {
 	return &HTTPDownloader{
-		url: url,
+		url:    url,
+		logger: logger,
 	}
 }
 func (h HTTPDownloader) Download(ctx context.Context, writer io.Writer) (map[string]any, error) {
+	logger := utils.LoggerWithContext(ctx, h.logger)
+
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, h.url, http.NoBody)
 	if err != nil {
-		log.Printf("failed to create http get request")
+		logger.With(zap.Error(err)).Error("failed to create http get request")
 		return nil, err
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		log.Printf("failed to make http get request")
+		logger.With(zap.Error(err)).Error("failed to make http get request")
 		return nil, err
 	}
 	defer response.Body.Close()
 	_, err = io.Copy(writer, response.Body)
 	if err != nil {
-		log.Printf("failed to read response and write to writer")
+		logger.With(zap.Error(err)).Error("failed to read response and write to writer")
 		return nil, err
 	}
 	metadata := map[string]any{

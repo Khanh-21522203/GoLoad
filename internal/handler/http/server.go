@@ -2,17 +2,18 @@ package http
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"time"
 
 	"GoLoad/internal/configs"
 	"GoLoad/internal/generated/grpc/go_load"
+	"GoLoad/internal/utils"
 
 	handlerGRPC "GoLoad/internal/handler/grpc"
 	"GoLoad/internal/handler/http/servemuxoptions"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -29,13 +30,15 @@ type server struct {
 	grpcConfig configs.GRPC
 	httpConfig configs.HTTP
 	authConfig configs.Auth
+	logger     *zap.Logger
 }
 
-func NewServer(grpcConfig configs.GRPC, httpConfig configs.HTTP, authConfig configs.Auth) Server {
+func NewServer(grpcConfig configs.GRPC, httpConfig configs.HTTP, authConfig configs.Auth, logger *zap.Logger) Server {
 	return &server{
 		grpcConfig: grpcConfig,
 		httpConfig: httpConfig,
 		authConfig: authConfig,
+		logger:     logger,
 	}
 }
 func (s server) getGRPCGatewayHandler(ctx context.Context) (http.Handler, error) {
@@ -62,6 +65,8 @@ func (s server) getGRPCGatewayHandler(ctx context.Context) (http.Handler, error)
 	return grpcMux, nil
 }
 func (s server) Start(ctx context.Context) error {
+	logger := utils.LoggerWithContext(ctx, s.logger)
+
 	grpcGatewayHandler, err := s.getGRPCGatewayHandler(ctx)
 	if err != nil {
 		return err
@@ -71,6 +76,7 @@ func (s server) Start(ctx context.Context) error {
 		ReadHeaderTimeout: time.Minute,
 		Handler:           grpcGatewayHandler,
 	}
-	log.Printf("starting http server")
+
+	logger.With(zap.String("address", s.httpConfig.Address)).Info("starting http server")
 	return httpServer.ListenAndServe()
 }

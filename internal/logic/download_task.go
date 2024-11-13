@@ -6,15 +6,16 @@ import (
 	"GoLoad/internal/dataaccess/file"
 	"GoLoad/internal/dataaccess/mq/producer"
 	"GoLoad/internal/generated/grpc/go_load"
+	"GoLoad/internal/utils"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/gammazero/workerpool"
 	"github.com/samber/lo"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -75,10 +76,12 @@ type downloadTask struct {
 	goquDatabase                *goqu.Database
 	fileClient                  file.Client
 	cronConfig                  configs.Cron
+	logger                      *zap.Logger
 }
 
 func NewDownloadTask(tokenLogic Token, accountDataAccessor database.AccountDataAccessor, downloadTaskDataAccessor database.DownloadTaskDataAccessor,
-	downloadTaskCreatedProducer producer.DownloadTaskCreatedProducer, goquDatabase *goqu.Database, fileClient file.Client, cronConfig configs.Cron) DownloadTask {
+	downloadTaskCreatedProducer producer.DownloadTaskCreatedProducer, goquDatabase *goqu.Database, fileClient file.Client,
+	cronConfig configs.Cron, logger *zap.Logger) DownloadTask {
 	return &downloadTask{
 		tokenLogic:                  tokenLogic,
 		accountDataAccessor:         accountDataAccessor,
@@ -87,6 +90,7 @@ func NewDownloadTask(tokenLogic Token, accountDataAccessor database.AccountDataA
 		goquDatabase:                goquDatabase,
 		fileClient:                  fileClient,
 		cronConfig:                  cronConfig,
+		logger:                      logger,
 	}
 }
 
@@ -157,8 +161,7 @@ func (d downloadTask) GetDownloadTaskList(ctx context.Context, params GetDownloa
 	if err != nil {
 		return GetDownloadTaskListOutput{}, err
 	}
-	downloadTaskList, err := d.downloadTaskDataAccessor.
-		GetDownloadTaskListOfAccount(ctx, accountID, params.Offset, params.Limit)
+	downloadTaskList, err := d.downloadTaskDataAccessor.GetDownloadTaskListOfAccount(ctx, accountID, params.Offset, params.Limit)
 	if err != nil {
 		return GetDownloadTaskListOutput{}, err
 	}
@@ -180,8 +183,7 @@ func (d downloadTask) UpdateDownloadTask(ctx context.Context, params UpdateDownl
 	}
 	output := UpdateDownloadTaskOutput{}
 	txErr := d.goquDatabase.WithTx(func(td *goqu.TxDatabase) error {
-		downloadTask, getDownloadTaskWithXLockErr := d.downloadTaskDataAccessor.WithDatabase(td).
-			GetDownloadTaskWithXLock(ctx, params.DownloadTaskID)
+		downloadTask, getDownloadTaskWithXLockErr := d.downloadTaskDataAccessor.WithDatabase(td).GetDownloadTaskWithXLock(ctx, params.DownloadTaskID)
 		if getDownloadTaskWithXLockErr != nil {
 			return getDownloadTaskWithXLockErr
 		}
@@ -216,20 +218,29 @@ func (d downloadTask) DeleteDownloadTask(ctx context.Context, params DeleteDownl
 }
 
 func (d downloadTask) ExecuteAllPendingDownloadTask(ctx context.Context) error {
+	logger := utils.LoggerWithContext(ctx, d.logger)
+
 	pendingDownloadTaskIDList, err := d.downloadTaskDataAccessor.GetPendingDownloadTaskIDList(ctx)
 	if err != nil {
 		return err
 	}
 	if len(pendingDownloadTaskIDList) == 0 {
-		log.Printf("no pending download task found")
+		logger.Info("no pending download task found")
 		return nil
 	}
-	log.Printf("pending download task found")
+
+	logger.
+		With(zap.Int("len(pending_download_task_id_list)", len(pendingDownloadTaskIDList))).
+		Info("pending download task found")
+
 	workerPool := workerpool.New(d.cronConfig.ExecuteAllPendingDownloadTask.ConcurrencyLimit)
 	for _, id := range pendingDownloadTaskIDList {
 		workerPool.Submit(func() {
 			if executeDownloadTaskErr := d.ExecuteDownloadTask(ctx, id); executeDownloadTaskErr != nil {
-				log.Printf("failed to execute download_task")
+				logger.
+					With(zap.Uint64("download_task_id", id)).
+					With(zap.Error(executeDownloadTaskErr)).
+					Error("failed to execute download_task")
 			}
 		})
 	}
@@ -239,6 +250,7 @@ func (d downloadTask) ExecuteAllPendingDownloadTask(ctx context.Context) error {
 
 func (d downloadTask) updateDownloadTaskStatusFromPendingToDownloading(ctx context.Context, id uint64) (bool, database.DownloadTask, error) {
 	var (
+		logger       = utils.LoggerWithContext(ctx, d.logger).With(zap.Uint64("id", id))
 		updated      = false
 		downloadTask database.DownloadTask
 		err          error
@@ -247,21 +259,21 @@ func (d downloadTask) updateDownloadTaskStatusFromPendingToDownloading(ctx conte
 		downloadTask, err = d.downloadTaskDataAccessor.WithDatabase(td).GetDownloadTaskWithXLock(ctx, id)
 		if err != nil {
 			if errors.Is(err, database.ErrDownloadTaskNotFound) {
-				log.Printf("download task not found, will skip")
+				logger.Warn("download task not found, will skip")
 				return nil
 			}
-			log.Printf("failed to get download task")
+			logger.With(zap.Error(err)).Error("failed to get download task")
 			return err
 		}
 		if downloadTask.DownloadStatus != go_load.DownloadStatus_Pending {
-			log.Printf("download task is not in pending status, will not execute")
+			logger.Warn("download task is not in pending status, will not execute")
 			updated = false
 			return nil
 		}
 		downloadTask.DownloadStatus = go_load.DownloadStatus_Downloading
 		err = d.downloadTaskDataAccessor.WithDatabase(td).UpdateDownloadTask(ctx, downloadTask)
 		if err != nil {
-			log.Printf("failed to update download task")
+			logger.With(zap.Error(err)).Error("failed to update download task")
 			return err
 		}
 		updated = true
@@ -274,14 +286,18 @@ func (d downloadTask) updateDownloadTaskStatusFromPendingToDownloading(ctx conte
 }
 
 func (d downloadTask) updateDownloadTaskStatusToFailed(ctx context.Context, downloadTask database.DownloadTask) {
+	logger := utils.LoggerWithContext(ctx, d.logger).With(zap.Uint64("id", downloadTask.ID))
+
 	downloadTask.DownloadStatus = go_load.DownloadStatus_Failed
 	updateDownloadTaskErr := d.downloadTaskDataAccessor.UpdateDownloadTask(ctx, downloadTask)
 	if updateDownloadTaskErr != nil {
-		log.Printf("failed to update download task status to failed")
+		logger.With(zap.Error(updateDownloadTaskErr)).Warn("failed to update download task status to failed")
 	}
 }
 
 func (d downloadTask) ExecuteDownloadTask(ctx context.Context, id uint64) error {
+	logger := utils.LoggerWithContext(ctx, d.logger).With(zap.Uint64("id", id))
+
 	updated, downloadTask, err := d.updateDownloadTaskStatusFromPendingToDownloading(ctx, id)
 	if err != nil {
 		return err
@@ -293,37 +309,37 @@ func (d downloadTask) ExecuteDownloadTask(ctx context.Context, id uint64) error 
 	//nolint:exhaustive // No need to check unsupported download type
 	switch downloadTask.DownloadType {
 	case go_load.DownloadType_HTTP:
-		downloader = NewHTTPDownloader(downloadTask.URL)
+		downloader = NewHTTPDownloader(downloadTask.URL, d.logger)
 	default:
-		log.Printf("unsupported download type")
+		logger.With(zap.Any("download_type", downloadTask.DownloadType)).Error("unsupported download type")
 		d.updateDownloadTaskStatusToFailed(ctx, downloadTask)
 		return nil
 	}
 	fileName := fmt.Sprintf("download_file_%d", id)
 	fileWriteCloser, err := d.fileClient.Write(ctx, fileName)
 	if err != nil {
-		log.Printf("failed to get download file writer")
+		logger.With(zap.Error(err)).Error("failed to get download file writer")
 		d.updateDownloadTaskStatusToFailed(ctx, downloadTask)
 		return err
 	}
 	defer fileWriteCloser.Close()
 	metadata, err := downloader.Download(ctx, fileWriteCloser)
 	if err != nil {
-		log.Printf("failed to download")
+		logger.With(zap.Error(err)).Error("failed to download")
 		d.updateDownloadTaskStatusToFailed(ctx, downloadTask)
 		return err
 	}
-	metadata["downloadTaskMetadataFieldNameFileName"] = fileName
+	metadata[downloadTaskMetadataFieldNameFileName] = fileName
 	downloadTask.DownloadStatus = go_load.DownloadStatus_Success
 	downloadTask.Metadata = database.JSON{
 		Data: metadata,
 	}
 	err = d.downloadTaskDataAccessor.UpdateDownloadTask(ctx, downloadTask)
 	if err != nil {
-		log.Printf("failed to update download task status to success")
+		logger.With(zap.Error(err)).Error("failed to update download task status to success")
 		return err
 	}
-	log.Printf("download task executed successfully")
+	logger.Info("download task executed successfully")
 	return nil
 }
 func (d downloadTask) GetDownloadTaskFile(ctx context.Context, params GetDownloadTaskFileParams) (io.ReadCloser, error) {

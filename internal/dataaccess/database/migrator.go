@@ -1,12 +1,13 @@
 package database
 
 import (
+	"GoLoad/internal/utils"
 	"context"
 	"database/sql"
 	"embed"
-	"log"
 
 	migrate "github.com/rubenv/sql-migrate"
+	"go.uber.org/zap"
 )
 
 var (
@@ -19,24 +20,28 @@ type Migrator interface {
 	Down(ctx context.Context) error
 }
 type migrator struct {
-	db *sql.DB
+	db     *sql.DB
+	logger *zap.Logger
 }
 
-func NewMigrator(db *sql.DB) Migrator {
+func NewMigrator(db *sql.DB, logger *zap.Logger) Migrator {
 	return &migrator{
-		db: db,
+		db:     db,
+		logger: logger,
 	}
 }
 func (m migrator) migrate(ctx context.Context, direction migrate.MigrationDirection) error {
-	_, err := migrate.ExecContext(ctx, m.db, "mysql", migrate.EmbedFileSystemMigrationSource{
+	logger := utils.LoggerWithContext(ctx, m.logger).With(zap.Int("direction", int(direction)))
+
+	migrationCount, err := migrate.ExecContext(ctx, m.db, "mysql", migrate.EmbedFileSystemMigrationSource{
 		FileSystem: migrationDirectoryMySQL,
 		Root:       "migrations/mysql",
 	}, direction)
 	if err != nil {
-		log.Printf("failed to execute migration")
+		logger.With(zap.Error(err)).Error("failed to execute migration")
 		return err
 	}
-	log.Printf("successfully executed database migrations")
+	logger.With(zap.Int("migration_count", migrationCount)).Info("successfully executed database migrations")
 	return nil
 }
 func (m migrator) Down(ctx context.Context) error {

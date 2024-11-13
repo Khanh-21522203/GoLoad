@@ -11,10 +11,7 @@ type hardenAuthCookieResponseWriter struct {
 	baseResponseWriter http.ResponseWriter
 }
 
-func NewHardenAuthCookieResponseWriter(
-	authCookieName string,
-	baseResponseWriter http.ResponseWriter,
-) http.ResponseWriter {
+func NewHardenAuthCookieResponseWriter(authCookieName string, baseResponseWriter http.ResponseWriter) http.ResponseWriter {
 	return &hardenAuthCookieResponseWriter{
 		authCookieName:     authCookieName,
 		baseResponseWriter: baseResponseWriter,

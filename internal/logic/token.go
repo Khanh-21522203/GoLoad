@@ -8,16 +8,17 @@ import (
 	"database/sql"
 	"encoding/pem"
 	"errors"
-	"log"
 	"time"
 
 	"github.com/golang-jwt/jwt"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"GoLoad/internal/configs"
 	"GoLoad/internal/dataaccess/cache"
 	"GoLoad/internal/dataaccess/database"
+	"GoLoad/internal/utils"
 )
 
 const (
@@ -69,23 +70,24 @@ type token struct {
 	privateKey                 *rsa.PrivateKey
 	tokenPublicKeyID           uint64
 	authConfig                 configs.Auth
+	logger                     *zap.Logger
 }
 
 func NewToken(accountDataAccessor database.AccountDataAccessor, tokenPublicKeyCache cache.TokenPublicKey,
-	tokenPublicKeyDataAccessor database.TokenPublicKeyDataAccessor, authConfig configs.Auth) (Token, error) {
+	tokenPublicKeyDataAccessor database.TokenPublicKeyDataAccessor, authConfig configs.Auth, logger *zap.Logger) (Token, error) {
 	expiresIn, err := authConfig.Token.GetExpiresInDuration()
 	if err != nil {
-		log.Printf("failed to parse expires_in")
+		logger.With(zap.Error(err)).Error("failed to parse expires_in")
 		return nil, err
 	}
 	rsaKeyPair, err := generateRSAKeyPair(rs512KeyPairBitCount)
 	if err != nil {
-		log.Printf("failed to generate rsa key pair")
+		logger.With(zap.Error(err)).Error("failed to generate rsa key pair")
 		return nil, err
 	}
 	publicKeyBytes, err := pemEncodePublicKey(&rsaKeyPair.PublicKey)
 	if err != nil {
-		log.Printf("failed to encode public key in pem format")
+		logger.With(zap.Error(err)).Error("failed to encode public key in pem format")
 		return nil, err
 	}
 	tokenPublicKeyID, err := tokenPublicKeyDataAccessor.CreatePublicKey(
@@ -93,7 +95,7 @@ func NewToken(accountDataAccessor database.AccountDataAccessor, tokenPublicKeyCa
 		database.TokenPublicKey{PublicKey: publicKeyBytes},
 	)
 	if err != nil {
-		log.Printf("failed to create public key entry in database")
+		logger.With(zap.Error(err)).Error("failed to create public key entry in database")
 		return nil, err
 	}
 	return &token{
@@ -104,74 +106,83 @@ func NewToken(accountDataAccessor database.AccountDataAccessor, tokenPublicKeyCa
 		privateKey:                 rsaKeyPair,
 		tokenPublicKeyID:           tokenPublicKeyID,
 		authConfig:                 authConfig,
+		logger:                     logger,
 	}, nil
 }
 func (t token) getJWTPublicKey(ctx context.Context, id uint64) (*rsa.PublicKey, error) {
+	logger := utils.LoggerWithContext(ctx, t.logger).With(zap.Uint64("id", id))
+
 	cachedPublicKeyBytes, err := t.tokenPublicKeyCache.Get(ctx, id)
 	if err == nil && cachedPublicKeyBytes != nil {
 		return jwt.ParseRSAPublicKeyFromPEM(cachedPublicKeyBytes)
 	}
-	log.Printf("failed to get cached public key bytes, will fail back to database")
+
+	logger.With(zap.Error(err)).Warn("failed to get cached public key bytes, will fail back to database")
 
 	tokenPublicKey, err := t.tokenPublicKeyDataAccessor.GetPublicKey(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, errTokenPublicKeyNotFound
 		}
-		log.Printf("cannot get token's public key from database")
+		logger.With(zap.Error(err)).Error("cannot get token's public key from database")
 		return nil, err
 	}
 
 	err = t.tokenPublicKeyCache.Set(ctx, id, tokenPublicKey.PublicKey)
 	if err != nil {
-		log.Printf("failed to set public key bytes into cache")
+		logger.With(zap.Error(err)).Warn("failed to set public key bytes into cache")
 	}
 	return jwt.ParseRSAPublicKeyFromPEM(tokenPublicKey.PublicKey)
 }
+
 func (t token) GetAccountIDAndExpireTime(ctx context.Context, tokenString string) (uint64, time.Time, error) {
+	logger := utils.LoggerWithContext(ctx, t.logger)
+
 	parsedToken, err := jwt.Parse(tokenString, func(parsedToken *jwt.Token) (interface{}, error) {
 		if _, ok := parsedToken.Method.(*jwt.SigningMethodRSA); !ok {
-			log.Printf("unexpected signing method")
+			logger.Error("unexpected signing method")
 			return nil, errUnexpectedSigningMethod
 		}
 		claims, ok := parsedToken.Claims.(jwt.MapClaims)
 		if !ok {
-			log.Printf("cannot get token's claims")
+			logger.Error("cannot get token's claims")
 			return nil, errCannotGetTokensClaims
 		}
 		tokenPublicKeyID, ok := claims["kid"].(float64)
 		if !ok {
-			log.Printf("cannot get token's kid claim")
+			logger.Error("cannot get token's kid claim")
 			return nil, errCannotGetTokensKidClaim
 		}
 		return t.getJWTPublicKey(ctx, uint64(tokenPublicKeyID))
 	})
 	if err != nil {
-		log.Printf("failed to parse token")
+		logger.With(zap.Error(err)).Error("failed to parse token")
 		return 0, time.Time{}, errInvalidToken
 	}
 	if !parsedToken.Valid {
-		log.Printf("invalid token")
+		logger.Error("invalid token")
 		return 0, time.Time{}, errInvalidToken
 	}
 	claims, ok := parsedToken.Claims.(jwt.MapClaims)
 	if !ok {
-		log.Printf("cannot get token's claims")
+		logger.Error("cannot get token's claims")
 		return 0, time.Time{}, errCannotGetTokensClaims
 	}
 	accountID, ok := claims["sub"].(float64)
 	if !ok {
-		log.Printf("cannot get token's sub claim")
+		logger.Error("cannot get token's sub claim")
 		return 0, time.Time{}, errCannotGetTokensSubClaim
 	}
 	expireTimeUnix, ok := claims["exp"].(float64)
 	if !ok {
-		log.Printf("cannot get token's exp claim")
+		logger.Error("cannot get token's exp claim")
 		return 0, time.Time{}, errCannotGetTokensExpClaim
 	}
 	return uint64(accountID), time.Unix(int64(expireTimeUnix), 0), nil
 }
 func (t token) GetToken(ctx context.Context, accountID uint64) (string, time.Time, error) {
+	logger := utils.LoggerWithContext(ctx, t.logger)
+
 	expireTime := time.Now().Add(t.expiresIn)
 	token := jwt.NewWithClaims(jwt.SigningMethodRS512, jwt.MapClaims{
 		"sub": accountID,
@@ -180,7 +191,7 @@ func (t token) GetToken(ctx context.Context, accountID uint64) (string, time.Tim
 	})
 	tokenString, err := token.SignedString(t.privateKey)
 	if err != nil {
-		log.Printf("failed to sign token")
+		logger.With(zap.Error(err)).Error("failed to sign token")
 		return "", time.Time{}, errFailedToSignToken
 	}
 	return tokenString, expireTime, nil

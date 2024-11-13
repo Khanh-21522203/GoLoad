@@ -1,11 +1,12 @@
 package database
 
 import (
+	"GoLoad/internal/utils"
 	"context"
 	"database/sql"
-	"log"
 
 	"github.com/doug-martin/goqu/v9"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -28,16 +29,20 @@ type AccountPasswordDataAccessor interface {
 }
 type accountPasswordDataAccessor struct {
 	database Database
+	logger   *zap.Logger
 }
 
-func NewAccountPasswordDataAccessor(database *goqu.Database) AccountPasswordDataAccessor {
+func NewAccountPasswordDataAccessor(database *goqu.Database, logger *zap.Logger) AccountPasswordDataAccessor {
 	return &accountPasswordDataAccessor{
 		database: database,
+		logger:   logger,
 	}
 }
 
 // CreateAccountPassword implements AccountPasswordDataAccessor.
 func (a *accountPasswordDataAccessor) CreateAccountPassword(ctx context.Context, accountPassword AccountPassword) error {
+	logger := utils.LoggerWithContext(ctx, a.logger)
+
 	_, err := a.database.
 		Insert(TabNameAccountPasswords).
 		Rows(goqu.Record{
@@ -47,24 +52,26 @@ func (a *accountPasswordDataAccessor) CreateAccountPassword(ctx context.Context,
 		Executor().
 		ExecContext(ctx)
 	if err != nil {
-		log.Printf("failed to create account password, err=%+v\n", err)
+		logger.With(zap.Error(err)).Error("failed to create account password")
 		return status.Error(codes.Internal, "failed to create account password")
 	}
 	return nil
 }
 
 func (a accountPasswordDataAccessor) GetAccountPassword(ctx context.Context, ofAccountID uint64) (AccountPassword, error) {
+	logger := utils.LoggerWithContext(ctx, a.logger).With(zap.Uint64("of_account_id", ofAccountID))
+
 	accountPassword := AccountPassword{}
 	found, err := a.database.
 		From(TabNameAccountPasswords).
 		Where(goqu.Ex{ColNameAccountPasswordsOfAccountID: ofAccountID}).
 		ScanStructContext(ctx, &accountPassword)
 	if err != nil {
-		log.Printf("failed to get account password by id, err=%+v\n", err)
+		logger.With(zap.Error(err)).Error("failed to get account password by id")
 		return AccountPassword{}, status.Error(codes.Internal, "failed to get account password by id")
 	}
 	if !found {
-		log.Printf("cannot find account by id, err=%+v\n", err)
+		logger.Warn("cannot find account by id")
 		return AccountPassword{}, sql.ErrNoRows
 	}
 	return accountPassword, nil
@@ -72,6 +79,8 @@ func (a accountPasswordDataAccessor) GetAccountPassword(ctx context.Context, ofA
 
 // UpdateAccountPassword implements AccountPasswordDataAccessor.
 func (a *accountPasswordDataAccessor) UpdateAccountPassword(ctx context.Context, accountPassword AccountPassword) error {
+	logger := utils.LoggerWithContext(ctx, a.logger)
+
 	_, err := a.database.
 		Update(TabNameAccountPasswords).
 		Set(goqu.Record{ColNameAccountPasswordsHash: accountPassword.Hash}).
@@ -79,7 +88,7 @@ func (a *accountPasswordDataAccessor) UpdateAccountPassword(ctx context.Context,
 		Executor().
 		ExecContext(ctx)
 	if err != nil {
-		log.Printf("failed to update account password, err=%+v\n", err)
+		logger.With(zap.Error(err)).Error("failed to update account password")
 		return status.Error(codes.Internal, "failed to update account password")
 	}
 	return nil
@@ -87,5 +96,6 @@ func (a *accountPasswordDataAccessor) UpdateAccountPassword(ctx context.Context,
 func (a accountPasswordDataAccessor) WithDatabase(database Database) AccountPasswordDataAccessor {
 	return &accountPasswordDataAccessor{
 		database: database,
+		logger:   a.logger,
 	}
 }

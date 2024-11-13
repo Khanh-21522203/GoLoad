@@ -4,11 +4,12 @@ import (
 	"GoLoad/internal/dataaccess/cache"
 	"GoLoad/internal/dataaccess/database"
 	"GoLoad/internal/generated/grpc/go_load"
+	"GoLoad/internal/utils"
 	"context"
 	"errors"
-	"log"
 
 	"github.com/doug-martin/goqu/v9"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -41,10 +42,11 @@ type account struct {
 	accountPasswordDataAccessor database.AccountPasswordDataAccessor
 	hashLogic                   Hash
 	tokenLogic                  Token
+	logger                      *zap.Logger
 }
 
 func NewAccount(goquDatabase *goqu.Database, takenAccountNameCache cache.TakenAccountName, accountDataAccessor database.AccountDataAccessor,
-	accountPasswordDataAccessor database.AccountPasswordDataAccessor, hashLogic Hash, tokenLogic Token) Account {
+	accountPasswordDataAccessor database.AccountPasswordDataAccessor, hashLogic Hash, tokenLogic Token, logger *zap.Logger) Account {
 	return &account{
 		goquDatabase:                goquDatabase,
 		takenAccountNameCache:       takenAccountNameCache,
@@ -52,6 +54,7 @@ func NewAccount(goquDatabase *goqu.Database, takenAccountNameCache cache.TakenAc
 		accountPasswordDataAccessor: accountPasswordDataAccessor,
 		hashLogic:                   hashLogic,
 		tokenLogic:                  tokenLogic,
+		logger:                      logger,
 	}
 }
 func (a account) databaseAccountToProtoAccount(account database.Account) *go_load.Account {
@@ -62,9 +65,11 @@ func (a account) databaseAccountToProtoAccount(account database.Account) *go_loa
 }
 
 func (a *account) isAccountAccountNameTaken(ctx context.Context, accountName string) (bool, error) {
+	logger := utils.LoggerWithContext(ctx, a.logger).With(zap.String("account_name", accountName))
+
 	accountNameTaken, err := a.takenAccountNameCache.Has(ctx, accountName)
 	if err != nil {
-		log.Printf("failed to get account name from taken set in cache, will fall back to database")
+		logger.With(zap.Error(err)).Warn("failed to get account name from taken set in cache, will fall back to database")
 	} else if accountNameTaken {
 		return true, nil
 	}
@@ -75,7 +80,7 @@ func (a *account) isAccountAccountNameTaken(ctx context.Context, accountName str
 		return false, err
 	}
 	if err := a.takenAccountNameCache.Add(ctx, accountName); err != nil {
-		log.Printf("failed to set account name into taken set in cache")
+		logger.With(zap.Error(err)).Warn("failed to set account name into taken set in cache")
 	}
 	return true, nil
 }

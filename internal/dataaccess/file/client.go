@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path"
 
 	"GoLoad/internal/configs"
+	"GoLoad/internal/utils"
 
 	"github.com/minio/minio-go"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -22,12 +23,12 @@ type Client interface {
 	Read(ctx context.Context, filePath string) (io.ReadCloser, error)
 }
 
-func NewClient(downloadConfig configs.Download) (Client, error) {
+func NewClient(downloadConfig configs.Download, logger *zap.Logger) (Client, error) {
 	switch downloadConfig.Mode {
 	case configs.DownloadModeLocal:
-		return NewLocalClient(downloadConfig)
+		return NewLocalClient(downloadConfig, logger)
 	case configs.DownloadModeS3:
-		return NewS3Client(downloadConfig)
+		return NewS3Client(downloadConfig, logger)
 	default:
 		return nil, fmt.Errorf("unsupported download mode: %s", downloadConfig.Mode)
 	}
@@ -38,9 +39,7 @@ type bufferedFileReader struct {
 	bufferedReader io.Reader
 }
 
-func newBufferedFileReader(
-	file *os.File,
-) io.ReadCloser {
+func newBufferedFileReader(file *os.File) io.ReadCloser {
 	return &bufferedFileReader{
 		file:           file,
 		bufferedReader: bufio.NewReader(file),
@@ -55,9 +54,10 @@ func (b bufferedFileReader) Read(p []byte) (int, error) {
 
 type LocalClient struct {
 	downloadDirectory string
+	logger            *zap.Logger
 }
 
-func NewLocalClient(downloadConfig configs.Download) (Client, error) {
+func NewLocalClient(downloadConfig configs.Download, logger *zap.Logger) (Client, error) {
 	if err := os.MkdirAll(downloadConfig.DownloadDirectory, os.ModeDir); err != nil {
 		if !errors.Is(err, os.ErrExist) {
 			return nil, fmt.Errorf("failed to create download directory: %w", err)
@@ -65,22 +65,27 @@ func NewLocalClient(downloadConfig configs.Download) (Client, error) {
 	}
 	return &LocalClient{
 		downloadDirectory: downloadConfig.DownloadDirectory,
+		logger:            logger,
 	}, nil
 }
 func (l LocalClient) Read(ctx context.Context, filePath string) (io.ReadCloser, error) {
+	logger := utils.LoggerWithContext(ctx, l.logger).With(zap.String("file_path", filePath))
+
 	absolutePath := path.Join(l.downloadDirectory, filePath)
 	file, err := os.Open(absolutePath)
 	if err != nil {
-		log.Printf("failed to open file")
+		logger.With(zap.Error(err)).Error("failed to open file")
 		return nil, status.Error(codes.Internal, "failed to open file")
 	}
 	return newBufferedFileReader(file), nil
 }
 func (l *LocalClient) Write(ctx context.Context, filePath string) (io.WriteCloser, error) {
+	logger := utils.LoggerWithContext(ctx, l.logger).With(zap.String("file_path", filePath))
+
 	absolutePath := path.Join(l.downloadDirectory, filePath)
 	file, err := os.Create(absolutePath)
 	if err != nil {
-		log.Printf("failed to open file")
+		logger.With(zap.Error(err)).Error("failed to open file")
 		return nil, status.Error(codes.Internal, "failed to open file")
 	}
 	return file, nil
@@ -91,12 +96,9 @@ type s3ClientReadWriteCloser struct {
 	isClosed    bool
 }
 
-func newS3ClientReadWriteCloser(
-	ctx context.Context,
-	minioClient *minio.Client,
-	bucketName,
-	objectName string,
-) io.ReadWriteCloser {
+func newS3ClientReadWriteCloser(ctx context.Context, minioClient *minio.Client, logger *zap.Logger, bucketName, objectName string) io.ReadWriteCloser {
+	logger = utils.LoggerWithContext(ctx, logger)
+
 	readWriteCloser := &s3ClientReadWriteCloser{
 		writtenData: make([]byte, 0),
 		isClosed:    false,
@@ -105,7 +107,7 @@ func newS3ClientReadWriteCloser(
 		if _, err := minioClient.PutObjectWithContext(
 			ctx, bucketName, objectName, readWriteCloser, -1, minio.PutObjectOptions{},
 		); err != nil {
-			log.Printf("failed to put object")
+			logger.With(zap.Error(err)).Error("failed to put object")
 		}
 	}()
 	return readWriteCloser
@@ -133,27 +135,32 @@ func (s *s3ClientReadWriteCloser) Write(p []byte) (int, error) {
 type S3Client struct {
 	minioClient *minio.Client
 	bucket      string
+	logger      *zap.Logger
 }
 
-func NewS3Client(downloadConfig configs.Download) (Client, error) {
+func NewS3Client(downloadConfig configs.Download, logger *zap.Logger) (Client, error) {
 	minioClient, err := minio.New(downloadConfig.Address, downloadConfig.Username, downloadConfig.Password, false)
 	if err != nil {
-		log.Printf("failed to create minio client")
+		logger.With(zap.Error(err)).Error("failed to create minio client")
 		return nil, err
 	}
 	return &S3Client{
 		minioClient: minioClient,
 		bucket:      downloadConfig.Bucket,
+		logger:      logger,
 	}, nil
 }
 func (s S3Client) Read(ctx context.Context, filePath string) (io.ReadCloser, error) {
+	logger := utils.LoggerWithContext(ctx, s.logger).With(zap.String("file_path", filePath))
+
 	object, err := s.minioClient.GetObjectWithContext(ctx, s.bucket, filePath, minio.GetObjectOptions{})
 	if err != nil {
-		log.Printf("failed to get s3 object")
+		logger.With(zap.Error(err)).Error("failed to get s3 object")
 		return nil, status.Error(codes.Internal, "failed to get s3 object")
 	}
 	return object, nil
 }
+
 func (s S3Client) Write(ctx context.Context, filePath string) (io.WriteCloser, error) {
-	return newS3ClientReadWriteCloser(ctx, s.minioClient, s.bucket, filePath), nil
+	return newS3ClientReadWriteCloser(ctx, s.minioClient, s.logger, s.bucket, filePath), nil
 }

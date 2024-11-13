@@ -15,6 +15,7 @@ type Config struct {
 	// Log      Log      `yaml:"log"`
 	GRPC     GRPC     `yaml:"grpc"`
 	HTTP     HTTP     `yaml:"http"`
+	Log      Log      `yaml:"log"`
 	Auth     Auth     `yaml:"auth"`
 	Database Database `yaml:"database"`
 	Cache    Cache    `yaml:"cache"`

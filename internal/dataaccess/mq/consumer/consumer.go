@@ -3,13 +3,14 @@ package consumer
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 
 	"GoLoad/internal/configs"
+	"GoLoad/internal/utils"
 
 	"github.com/IBM/sarama"
+	"go.uber.org/zap"
 )
 
 type HandlerFunc func(ctx context.Context, queueName string, payload []byte) error
@@ -57,6 +58,7 @@ type Consumer interface {
 type consumer struct {
 	saramaConsumer            sarama.ConsumerGroup
 	queueNameToHandlerFuncMap map[string]HandlerFunc
+	logger                    *zap.Logger
 }
 
 func newSaramaConfig(mqConfig configs.MQ) *sarama.Config {
@@ -65,7 +67,7 @@ func newSaramaConfig(mqConfig configs.MQ) *sarama.Config {
 	saramaConfig.Metadata.Full = true
 	return saramaConfig
 }
-func NewConsumer(mqConfig configs.MQ) (Consumer, error) {
+func NewConsumer(mqConfig configs.MQ, logger *zap.Logger) (Consumer, error) {
 	saramaConsumer, err := sarama.NewConsumerGroup(mqConfig.Addresses, mqConfig.ClientID, newSaramaConfig(mqConfig))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sarama consumer: %w", err)
@@ -73,6 +75,7 @@ func NewConsumer(mqConfig configs.MQ) (Consumer, error) {
 	return &consumer{
 		saramaConsumer:            saramaConsumer,
 		queueNameToHandlerFuncMap: make(map[string]HandlerFunc),
+		logger:                    logger,
 	}, nil
 }
 func (c *consumer) RegisterHandler(queueName string, handlerFunc HandlerFunc) {
@@ -80,6 +83,8 @@ func (c *consumer) RegisterHandler(queueName string, handlerFunc HandlerFunc) {
 }
 
 func (c consumer) Start(ctx context.Context) error {
+	logger := utils.LoggerWithContext(ctx, c.logger)
+
 	exitSignalChannel := make(chan os.Signal, 1)
 	signal.Notify(exitSignalChannel, os.Interrupt)
 	for queueName, handlerFunc := range c.queueNameToHandlerFuncMap {
@@ -89,7 +94,10 @@ func (c consumer) Start(ctx context.Context) error {
 				[]string{queueName},
 				newConsumerHandler(handlerFunc, exitSignalChannel),
 			); err != nil {
-				log.Printf("failed to consume message from queue")
+				logger.
+					With(zap.String("queue_name", queueName)).
+					With(zap.Error(err)).
+					Error("failed to consume message from queue")
 			}
 		}(queueName, handlerFunc)
 	}

@@ -13,10 +13,12 @@ import (
 	"GoLoad/internal/dataaccess"
 	"GoLoad/internal/handler"
 	"GoLoad/internal/logic"
+	"GoLoad/internal/utils"
 )
 
 var WireSet = wire.NewSet(
 	configs.WireSet,
+	utils.WireSet,
 	dataaccess.WireSet,
 	logic.WireSet,
 	handler.WireSet,

@@ -10,6 +10,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	_ "github.com/go-sql-driver/mysql" // Import MySQL driver
+	"go.uber.org/zap"
 )
 
 type Database interface {
@@ -40,7 +41,7 @@ type Database interface {
 	Update(table interface{}) *goqu.UpdateDataset
 }
 
-func InitializeAndMigrateUpDB(databaseConfig configs.Database) (*sql.DB, func(), error) {
+func InitializeAndMigrateUpDB(databaseConfig configs.Database, logger *zap.Logger) (*sql.DB, func(), error) {
 	connectionString := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
 		databaseConfig.Username,
 		databaseConfig.Password,
@@ -56,10 +57,10 @@ func InitializeAndMigrateUpDB(databaseConfig configs.Database) (*sql.DB, func(),
 	cleanup := func() {
 		db.Close()
 	}
-	migrator := NewMigrator(db)
+	migrator := NewMigrator(db, logger)
 	err = migrator.Up(context.Background())
 	if err != nil {
-		log.Printf("failed to execute database up migration")
+		logger.With(zap.Error(err)).Error("failed to execute database up migration")
 	}
 	return db, cleanup, nil
 }

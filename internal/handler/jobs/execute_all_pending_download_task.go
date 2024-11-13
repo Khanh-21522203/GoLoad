@@ -12,9 +12,7 @@ type executeAllPendingDownloadTask struct {
 	downloadTaskLogic logic.DownloadTask
 }
 
-func NewExecuteAllPendingDownloadTask(
-	downloadTaskLogic logic.DownloadTask,
-) ExecuteAllPendingDownloadTask {
+func NewExecuteAllPendingDownloadTask(downloadTaskLogic logic.DownloadTask) ExecuteAllPendingDownloadTask {
 	return &executeAllPendingDownloadTask{
 		downloadTaskLogic: downloadTaskLogic,
 	}

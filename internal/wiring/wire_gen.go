@@ -21,6 +21,7 @@ import (
 	"GoLoad/internal/handler/http"
 	"GoLoad/internal/handler/jobs"
 	"GoLoad/internal/logic"
+	"GoLoad/internal/utils"
 	"github.com/google/wire"
 )
 
@@ -32,66 +33,78 @@ func InitializeStandaloneServer(configFilePath configs.ConfigFilePath) (*app.Sta
 		return nil, nil, err
 	}
 	configsDatabase := config.Database
-	db, cleanup, err := database.InitializeAndMigrateUpDB(configsDatabase)
+	log := config.Log
+	logger, cleanup, err := utils.InitializeLogger(log)
 	if err != nil {
+		return nil, nil, err
+	}
+	db, cleanup2, err := database.InitializeAndMigrateUpDB(configsDatabase, logger)
+	if err != nil {
+		cleanup()
 		return nil, nil, err
 	}
 	goquDatabase := database.InitializeGoquDB(db)
 	configsCache := config.Cache
-	client := cache.NewRedisClient(configsCache)
-	takenAccountName := cache.NewTakenAccountName(client)
-	accountDataAccessor := database.NewAccountDataAccessor(goquDatabase)
-	accountPasswordDataAccessor := database.NewAccountPasswordDataAccessor(goquDatabase)
+	client := cache.NewRedisClient(configsCache, logger)
+	takenAccountName := cache.NewTakenAccountName(client, logger)
+	accountDataAccessor := database.NewAccountDataAccessor(goquDatabase, logger)
+	accountPasswordDataAccessor := database.NewAccountPasswordDataAccessor(goquDatabase, logger)
 	auth := config.Auth
 	hash := logic.NewHash(auth)
-	tokenPublicKey := cache.NewTokenPublicKey(client)
-	tokenPublicKeyDataAccessor := database.NewTokenPublicKeyDataAccessor(goquDatabase)
-	token, err := logic.NewToken(accountDataAccessor, tokenPublicKey, tokenPublicKeyDataAccessor, auth)
+	tokenPublicKey := cache.NewTokenPublicKey(client, logger)
+	tokenPublicKeyDataAccessor := database.NewTokenPublicKeyDataAccessor(goquDatabase, logger)
+	token, err := logic.NewToken(accountDataAccessor, tokenPublicKey, tokenPublicKeyDataAccessor, auth, logger)
 	if err != nil {
+		cleanup2()
 		cleanup()
 		return nil, nil, err
 	}
-	account := logic.NewAccount(goquDatabase, takenAccountName, accountDataAccessor, accountPasswordDataAccessor, hash, token)
-	downloadTaskDataAccessor := database.NewDownloadTaskDataAccessor(goquDatabase)
+	account := logic.NewAccount(goquDatabase, takenAccountName, accountDataAccessor, accountPasswordDataAccessor, hash, token, logger)
+	downloadTaskDataAccessor := database.NewDownloadTaskDataAccessor(goquDatabase, logger)
 	mq := config.MQ
-	producerClient, err := producer.NewClient(mq)
+	producerClient, err := producer.NewClient(mq, logger)
 	if err != nil {
+		cleanup2()
 		cleanup()
 		return nil, nil, err
 	}
-	downloadTaskCreatedProducer := producer.NewDownloadTaskCreatedProducer(producerClient)
+	downloadTaskCreatedProducer := producer.NewDownloadTaskCreatedProducer(producerClient, logger)
 	download := config.Download
-	fileClient, err := file.NewClient(download)
+	fileClient, err := file.NewClient(download, logger)
 	if err != nil {
+		cleanup2()
 		cleanup()
 		return nil, nil, err
 	}
 	cron := config.Cron
-	downloadTask := logic.NewDownloadTask(token, accountDataAccessor, downloadTaskDataAccessor, downloadTaskCreatedProducer, goquDatabase, fileClient, cron)
+	downloadTask := logic.NewDownloadTask(token, accountDataAccessor, downloadTaskDataAccessor, downloadTaskCreatedProducer, goquDatabase, fileClient, cron, logger)
 	configsGRPC := config.GRPC
 	goLoadServiceServer, err := grpc.NewHandler(account, downloadTask, configsGRPC)
 	if err != nil {
+		cleanup2()
 		cleanup()
 		return nil, nil, err
 	}
-	server := grpc.NewServer(goLoadServiceServer, configsGRPC)
+	server := grpc.NewServer(goLoadServiceServer, configsGRPC, logger)
 	configsHTTP := config.HTTP
-	httpServer := http.NewServer(configsGRPC, configsHTTP, auth)
-	downloadTaskCreated := consumers.NewDownloadTaskCreated(downloadTask)
-	consumerConsumer, err := consumer.NewConsumer(mq)
+	httpServer := http.NewServer(configsGRPC, configsHTTP, auth, logger)
+	downloadTaskCreated := consumers.NewDownloadTaskCreated(downloadTask, logger)
+	consumerConsumer, err := consumer.NewConsumer(mq, logger)
 	if err != nil {
+		cleanup2()
 		cleanup()
 		return nil, nil, err
 	}
-	root := consumers.NewRoot(downloadTaskCreated, consumerConsumer)
+	root := consumers.NewRoot(downloadTaskCreated, consumerConsumer, logger)
 	executeAllPendingDownloadTask := jobs.NewExecuteAllPendingDownloadTask(downloadTask)
 	updateDownloadingAndFailedDownloadTaskStatusToPending := jobs.NewUpdateDownloadingAndFailedDownloadTaskStatusToPending(downloadTask)
-	standaloneServer := app.NewStandaloneServer(server, httpServer, root, executeAllPendingDownloadTask, updateDownloadingAndFailedDownloadTaskStatusToPending, cron)
+	standaloneServer := app.NewStandaloneServer(server, httpServer, root, executeAllPendingDownloadTask, updateDownloadingAndFailedDownloadTaskStatusToPending, cron, logger)
 	return standaloneServer, func() {
+		cleanup2()
 		cleanup()
 	}, nil
 }
 
 // wire.go:
 
-var WireSet = wire.NewSet(configs.WireSet, dataaccess.WireSet, logic.WireSet, handler.WireSet, app.WireSet)
+var WireSet = wire.NewSet(configs.WireSet, utils.WireSet, dataaccess.WireSet, logic.WireSet, handler.WireSet, app.WireSet)

@@ -1,9 +1,11 @@
 package cache
 
 import (
+	"GoLoad/internal/utils"
 	"context"
 	"fmt"
-	"log"
+
+	"go.uber.org/zap"
 )
 
 type TokenPublicKey interface {
@@ -12,20 +14,25 @@ type TokenPublicKey interface {
 }
 type tokenPublicKey struct {
 	client Client
+	logger *zap.Logger
 }
 
-func NewTokenPublicKey(client Client) TokenPublicKey {
+func NewTokenPublicKey(client Client, logger *zap.Logger) TokenPublicKey {
 	return &tokenPublicKey{
 		client: client,
+		logger: logger,
 	}
 }
 func (c tokenPublicKey) getTokenPublicKeyCacheKey(id uint64) string {
 	return fmt.Sprintf("token_public_key:%d", id)
 }
 func (c tokenPublicKey) Get(ctx context.Context, id uint64) ([]byte, error) {
+	logger := utils.LoggerWithContext(ctx, c.logger).With(zap.Uint64("id", id))
+
 	cacheKey := c.getTokenPublicKeyCacheKey(id)
 	cacheEntry, err := c.client.Get(ctx, cacheKey)
 	if err != nil {
+		logger.With(zap.Error(err)).Error("failed to get token public key cache")
 		return nil, err
 	}
 	if cacheEntry == nil {
@@ -33,15 +40,17 @@ func (c tokenPublicKey) Get(ctx context.Context, id uint64) ([]byte, error) {
 	}
 	publicKey, ok := cacheEntry.([]byte)
 	if !ok {
-		log.Printf("cache entry is not of type bytes")
+		logger.Error("cache entry is not of type string")
 		return nil, nil
 	}
 	return publicKey, nil
 }
 func (c tokenPublicKey) Set(ctx context.Context, id uint64, bytes []byte) error {
+	logger := utils.LoggerWithContext(ctx, c.logger).With(zap.Uint64("id", id))
+
 	cacheKey := c.getTokenPublicKeyCacheKey(id)
 	if err := c.client.Set(ctx, cacheKey, bytes, 0); err != nil {
-		log.Printf("failed to insert token public key into cache")
+		logger.With(zap.Error(err)).Error("failed to insert token public key into cache")
 		return err
 	}
 	return nil

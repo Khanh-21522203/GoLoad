@@ -6,10 +6,12 @@ import (
 	"GoLoad/internal/handler/grpc"
 	"GoLoad/internal/handler/http"
 	"GoLoad/internal/handler/jobs"
+	"GoLoad/internal/utils"
 	"context"
-	"log"
+	"syscall"
 
 	"github.com/go-co-op/gocron/v2"
+	"go.uber.org/zap"
 )
 
 type StandaloneServer struct {
@@ -19,6 +21,7 @@ type StandaloneServer struct {
 	executeAllPendingDownloadTaskJob                         jobs.ExecuteAllPendingDownloadTask
 	updateDownloadingAndFailedDownloadTaskStatusToPendingJob jobs.UpdateDownloadingAndFailedDownloadTaskStatusToPending
 	cronConfig                                               configs.Cron
+	logger                                                   *zap.Logger
 }
 
 func NewStandaloneServer(
@@ -28,6 +31,7 @@ func NewStandaloneServer(
 	executeAllPendingDownloadTaskJob jobs.ExecuteAllPendingDownloadTask,
 	updateDownloadingAndFailedDownloadTaskStatusToPendingJob jobs.UpdateDownloadingAndFailedDownloadTaskStatusToPending,
 	cronConfig configs.Cron,
+	logger *zap.Logger,
 ) *StandaloneServer {
 	return &StandaloneServer{
 		grpcServer:                       grpcServer,
@@ -36,6 +40,7 @@ func NewStandaloneServer(
 		executeAllPendingDownloadTaskJob: executeAllPendingDownloadTaskJob,
 		updateDownloadingAndFailedDownloadTaskStatusToPendingJob: updateDownloadingAndFailedDownloadTaskStatusToPendingJob,
 		cronConfig: cronConfig,
+		logger:     logger,
 	}
 }
 func (s StandaloneServer) scheduleCronJobs(scheduler gocron.Scheduler) error {
@@ -43,22 +48,24 @@ func (s StandaloneServer) scheduleCronJobs(scheduler gocron.Scheduler) error {
 		gocron.CronJob(s.cronConfig.ExecuteAllPendingDownloadTask.Schedule, true),
 		gocron.NewTask(func() {
 			if err := s.executeAllPendingDownloadTaskJob.Run(context.Background()); err != nil {
-				log.Printf("failed to run execute all pending download task job")
+				s.logger.With(zap.Error(err)).Error("failed to run execute all pending download task job")
 			}
 		}),
 	); err != nil {
-		log.Printf("failed to schedule execute all pending download task job")
+		s.logger.With(zap.Error(err)).Error("failed to schedule execute all pending download task job")
 		return err
 	}
 	if _, err := scheduler.NewJob(
 		gocron.CronJob(s.cronConfig.UpdateDownloadingAndFailedDownloadTaskStatusToPending.Schedule, true),
 		gocron.NewTask(func() {
 			if err := s.executeAllPendingDownloadTaskJob.Run(context.Background()); err != nil {
-				log.Printf("failed to run update downloading and failed download task status to pending job")
+				s.logger.With(zap.Error(err)).
+					Error("failed to run update downloading and failed download task status to pending job")
 			}
 		}),
 	); err != nil {
-		log.Printf("failed to schedule update downloading and failed download task status to pending job")
+		s.logger.With(zap.Error(err)).
+			Error("failed to schedule update downloading and failed download task status to pending job")
 		return err
 	}
 	return nil
@@ -69,12 +76,12 @@ func (s StandaloneServer) Start() error {
 	}
 	scheduler, err := gocron.NewScheduler()
 	if err != nil {
-		log.Printf("failed to initialize scheduler")
+		s.logger.With(zap.Error(err)).Error("failed to initialize scheduler")
 		return err
 	}
 	defer func() {
 		if shutdownErr := scheduler.Shutdown(); shutdownErr != nil {
-			log.Printf("failed to shutdown scheduler")
+			s.logger.With(zap.Error(shutdownErr)).Error("failed to shutdown scheduler")
 		}
 	}()
 	err = s.scheduleCronJobs(scheduler)
@@ -82,16 +89,18 @@ func (s StandaloneServer) Start() error {
 		return err
 	}
 	go func() {
-		s.grpcServer.Start(context.Background())
-		log.Printf("grpc server stopped")
+		grpcStartErr := s.grpcServer.Start(context.Background())
+		s.logger.With(zap.Error(grpcStartErr)).Info("grpc server stopped")
 	}()
 	go func() {
-		s.httpServer.Start(context.Background())
-		log.Printf("http server stopped")
+		httpStartErr := s.httpServer.Start(context.Background())
+		s.logger.With(zap.Error(httpStartErr)).Info("http server stopped")
 	}()
 	go func() {
-		s.rootConsumer.Start(context.Background())
-		log.Printf("message queue consumer stopped")
+		consumerStartErr := s.rootConsumer.Start(context.Background())
+		s.logger.With(zap.Error(consumerStartErr)).Info("message queue consumer stopped")
 	}()
+
+	utils.BlockUntilSignal(syscall.SIGINT, syscall.SIGTERM)
 	return nil
 }

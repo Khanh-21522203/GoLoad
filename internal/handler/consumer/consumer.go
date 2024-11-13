@@ -5,6 +5,8 @@ import (
 	"GoLoad/internal/dataaccess/mq/producer"
 	"context"
 	"encoding/json"
+
+	"go.uber.org/zap"
 )
 
 type Root interface {
@@ -13,12 +15,14 @@ type Root interface {
 type root struct {
 	downloadTaskCreatedHandler DownloadTaskCreated
 	mqConsumer                 consumer.Consumer
+	logger                     *zap.Logger
 }
 
-func NewRoot(downloadTaskCreatedHandler DownloadTaskCreated, mqConsumer consumer.Consumer) Root {
+func NewRoot(downloadTaskCreatedHandler DownloadTaskCreated, mqConsumer consumer.Consumer, logger *zap.Logger) Root {
 	return &root{
 		downloadTaskCreatedHandler: downloadTaskCreatedHandler,
 		mqConsumer:                 mqConsumer,
+		logger:                     logger,
 	}
 }
 func (r root) Start(ctx context.Context) error {

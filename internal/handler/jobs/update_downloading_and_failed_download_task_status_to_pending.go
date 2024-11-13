@@ -12,9 +12,7 @@ type updateDownloadingAndFailedDownloadTaskStatusToPending struct {
 	downloadTaskLogic logic.DownloadTask
 }
 
-func NewUpdateDownloadingAndFailedDownloadTaskStatusToPending(
-	downloadTaskLogic logic.DownloadTask,
-) UpdateDownloadingAndFailedDownloadTaskStatusToPending {
+func NewUpdateDownloadingAndFailedDownloadTaskStatusToPending(downloadTaskLogic logic.DownloadTask) UpdateDownloadingAndFailedDownloadTaskStatusToPending {
 	return &updateDownloadingAndFailedDownloadTaskStatusToPending{
 		downloadTaskLogic: downloadTaskLogic,
 	}
