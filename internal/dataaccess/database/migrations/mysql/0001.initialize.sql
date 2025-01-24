@@ -36,3 +36,5 @@ DROP TABLE IF EXISTS download_tasks;
 DROP TABLE IF EXISTS token_public_keys;
 
 DROP TABLE IF EXISTS account_passwords;
+
+DROP TABLE IF EXISTS accounts;

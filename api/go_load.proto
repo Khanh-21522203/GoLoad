@@ -95,3 +95,5 @@ message GetDownloadTaskFileResponse {
 //             protoc -I="." --grpc-gateway_out=internal/generated api/go_load.proto --grpc-gateway_opt generate_unbound_methods=true
 //             protoc -I="." --openapiv2_out=. api/go_load.proto --openapiv2_opt generate_unbound_methods=true
 //             protoc -I="." --validate_out="lang=go:internal/generated"
+
+//             protoc -I="." --swagger_out=logtostderr=true:.  api/go_load.proto

@@ -92,7 +92,7 @@ func NewToken(accountDataAccessor database.AccountDataAccessor, tokenPublicKeyCa
 	}
 	tokenPublicKeyID, err := tokenPublicKeyDataAccessor.CreatePublicKey(
 		context.Background(),
-		database.TokenPublicKey{PublicKey: publicKeyBytes},
+		database.TokenPublicKey{PublicKey: string(publicKeyBytes)},
 	)
 	if err != nil {
 		logger.With(zap.Error(err)).Error("failed to create public key entry in database")
@@ -113,8 +113,8 @@ func (t token) getJWTPublicKey(ctx context.Context, id uint64) (*rsa.PublicKey, 
 	logger := utils.LoggerWithContext(ctx, t.logger).With(zap.Uint64("id", id))
 
 	cachedPublicKeyBytes, err := t.tokenPublicKeyCache.Get(ctx, id)
-	if err == nil && cachedPublicKeyBytes != nil {
-		return jwt.ParseRSAPublicKeyFromPEM(cachedPublicKeyBytes)
+	if err == nil {
+		return jwt.ParseRSAPublicKeyFromPEM([]byte(cachedPublicKeyBytes))
 	}
 
 	logger.With(zap.Error(err)).Warn("failed to get cached public key bytes, will fail back to database")
@@ -132,7 +132,8 @@ func (t token) getJWTPublicKey(ctx context.Context, id uint64) (*rsa.PublicKey, 
 	if err != nil {
 		logger.With(zap.Error(err)).Warn("failed to set public key bytes into cache")
 	}
-	return jwt.ParseRSAPublicKeyFromPEM(tokenPublicKey.PublicKey)
+
+	return jwt.ParseRSAPublicKeyFromPEM([]byte(tokenPublicKey.PublicKey))
 }
 
 func (t token) GetAccountIDAndExpireTime(ctx context.Context, tokenString string) (uint64, time.Time, error) {

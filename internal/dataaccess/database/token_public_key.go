@@ -6,20 +6,24 @@ import (
 	"database/sql"
 
 	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/mysql"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
+var (
+	TabNameTokenPublicKeys = goqu.T("token_public_keys")
+)
+
 const (
-	TabNameTokenPublicKeys          = "token_public_keys"
 	ColNameTokenPublicKeysID        = "id"
 	ColNameTokenPublicKeysPublicKey = "public_key"
 )
 
 type TokenPublicKey struct {
 	ID        uint64 `db:"id" goqu:"skipinsert,skipupdate"`
-	PublicKey []byte `db:"public_key"`
+	PublicKey string `db:"public_key"`
 }
 type TokenPublicKeyDataAccessor interface {
 	CreatePublicKey(ctx context.Context, tokenPublicKey TokenPublicKey) (uint64, error)
@@ -39,6 +43,7 @@ func NewTokenPublicKeyDataAccessor(database *goqu.Database, logger *zap.Logger) 
 }
 func (a tokenPublicKeyDataAccessor) CreatePublicKey(ctx context.Context, tokenPublicKey TokenPublicKey) (uint64, error) {
 	logger := utils.LoggerWithContext(ctx, a.logger)
+	// log.Println(tokenPublicKey)
 
 	result, err := a.database.
 		Insert(TabNameTokenPublicKeys).
@@ -47,6 +52,7 @@ func (a tokenPublicKeyDataAccessor) CreatePublicKey(ctx context.Context, tokenPu
 		}).
 		Executor().
 		ExecContext(ctx)
+
 	if err != nil {
 		logger.With(zap.Error(err)).Error("failed to create token public key")
 		return 0, status.Error(codes.Internal, "failed to create token public key")
