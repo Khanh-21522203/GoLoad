@@ -26,3 +26,39 @@ The technologies used in this project are:
 ## Application Architecture
 
 ![System Design for GoLoad](./system_design.png)
+
+## How to Run GoLoad
+
+To get GoLoad up and running, follow these steps:
+
+### Prerequisites
+
+Before running the application, ensure you have the following installed:
+
+- [Go](https://golang.org/dl/) (version 1.18 or later)
+- [Docker](https://www.docker.com/get-started)
+- [Docker Compose](https://docs.docker.com/compose/install/)
+- [MySQL](https://www.mysql.com/)
+- [Kafka](https://kafka.apache.org/)
+- [Redis](https://redis.io/)
+- [AWS S3 credentials](https://aws.amazon.com/s3/) (if using S3 for file storage)
+
+or you can set up with docker.
+
+### 1. Clone the Repository
+
+First, clone the GoLoad repository to your local machine:
+```
+git clone https://github.com/your-username/goload.git
+cd goLoad
+```
+### 2. Docker Setup
+Run the application using Docker Compose. This will start the necessary services like MySQL, Kafka, Redis, and GoLoad:
+```
+docker-compose up
+```
+### 3. Run the application
+run-standalone-server:
+```
+go run cmd/$(PROJECT_NAME)/*.go standalone-server
+```
