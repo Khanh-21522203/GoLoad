@@ -49,7 +49,7 @@ or you can set up with docker.
 
 First, clone the GoLoad repository to your local machine:
 ```
-git clone https://github.com/your-username/goload.git
+git clone https://github.com/Khanh-21522203/GoLoad
 cd goLoad
 ```
 ### 2. Docker Setup
@@ -60,5 +60,5 @@ docker-compose up
 ### 3. Run the application
 run-standalone-server:
 ```
-go run cmd/$(PROJECT_NAME)/*.go standalone-server
+go run cmd/goload/main.go standalone-server
 ```
